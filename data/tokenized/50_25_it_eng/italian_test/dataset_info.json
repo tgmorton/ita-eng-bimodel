@@ -1,0 +1,57 @@
+{
+  "builder_name": "text",
+  "citation": "",
+  "config_name": "default",
+  "dataset_name": "text",
+  "dataset_size": 64694602,
+  "description": "",
+  "download_checksums": {
+    "/Users/thomasmorton/ita-eng-bimodel/data/processed/italian/test_data_reduced/europarl-v7.it-en.it.test": {
+      "num_bytes": 26795077,
+      "checksum": null
+    },
+    "/Users/thomasmorton/ita-eng-bimodel/data/processed/italian/test_data_reduced/PaCCSS-IT.test": {
+      "num_bytes": 449311,
+      "checksum": null
+    },
+    "/Users/thomasmorton/ita-eng-bimodel/data/processed/italian/test_data_reduced/SPGC.test": {
+      "num_bytes": 20949187,
+      "checksum": null
+    },
+    "/Users/thomasmorton/ita-eng-bimodel/data/processed/italian/test_data_reduced/QCRI.test": {
+      "num_bytes": 5106111,
+      "checksum": null
+    },
+    "/Users/thomasmorton/ita-eng-bimodel/data/processed/italian/test_data_reduced/Leipzig_Web_Public.test": {
+      "num_bytes": 10461418,
+      "checksum": null
+    }
+  },
+  "download_size": 63761104,
+  "features": {
+    "input_ids": {
+      "feature": {
+        "dtype": "int32",
+        "_type": "Value"
+      },
+      "_type": "Sequence"
+    }
+  },
+  "homepage": "",
+  "license": "",
+  "size_in_bytes": 128455706,
+  "splits": {
+    "train": {
+      "name": "train",
+      "num_bytes": 64694602,
+      "num_examples": 311166,
+      "dataset_name": "text"
+    }
+  },
+  "version": {
+    "version_str": "0.0.0",
+    "major": 0,
+    "minor": 0,
+    "patch": 0
+  }
+}

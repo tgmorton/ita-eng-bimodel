@@ -1,0 +1,61 @@
+{
+  "builder_name": "text",
+  "citation": "",
+  "config_name": "default",
+  "dataset_name": "text",
+  "dataset_size": 143813665,
+  "description": "",
+  "download_checksums": {
+    "/Users/thomasmorton/ita-eng-bimodel/data/processed/english/25M/open_subtitles.train": {
+      "num_bytes": 26756287,
+      "checksum": null
+    },
+    "/Users/thomasmorton/ita-eng-bimodel/data/processed/english/25M/bnc_spoken.train": {
+      "num_bytes": 10249763,
+      "checksum": null
+    },
+    "/Users/thomasmorton/ita-eng-bimodel/data/processed/english/25M/gutenberg.train": {
+      "num_bytes": 36506221,
+      "checksum": null
+    },
+    "/Users/thomasmorton/ita-eng-bimodel/data/processed/english/25M/childes.train": {
+      "num_bytes": 39029621,
+      "checksum": null
+    },
+    "/Users/thomasmorton/ita-eng-bimodel/data/processed/english/25M/simple_wiki.train": {
+      "num_bytes": 21425288,
+      "checksum": null
+    },
+    "/Users/thomasmorton/ita-eng-bimodel/data/processed/english/25M/switchboard.train": {
+      "num_bytes": 1661780,
+      "checksum": null
+    }
+  },
+  "download_size": 135628960,
+  "features": {
+    "input_ids": {
+      "feature": {
+        "dtype": "int32",
+        "_type": "Value"
+      },
+      "_type": "Sequence"
+    }
+  },
+  "homepage": "",
+  "license": "",
+  "size_in_bytes": 279442625,
+  "splits": {
+    "train": {
+      "name": "train",
+      "num_bytes": 143813665,
+      "num_examples": 2728235,
+      "dataset_name": "text"
+    }
+  },
+  "version": {
+    "version_str": "0.0.0",
+    "major": 0,
+    "minor": 0,
+    "patch": 0
+  }
+}
