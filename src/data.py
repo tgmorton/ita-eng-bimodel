@@ -57,43 +57,48 @@ def create_dataloaders(
         logger.info(f"Loading data from: {dataset_path}")
         try:
             dataset = load_from_disk(str(dataset_path))
-            logger.info(f"Successfully loaded dataset with {len(dataset):,} initial samples.")
+            # --- DEBUG-1 ---
+            logger.info(f"[DEBUG] Initial dataset length for {dataset_path.name}: {len(dataset):,}")
         except FileNotFoundError:
             logger.error(f"Dataset not found at path: {dataset_path}")
             raise
 
         block_size = 1024
-
         orig_cols = dataset.column_names
 
-        # Use fn_kwargs to pass arguments to the map function. This is more robust for multiprocessing.
-        dataset = dataset.map(
+        mapped_dataset = dataset.map(
             _chunk_examples,
             batched=True,
-            fn_kwargs={'block_size': block_size},  # <-- The key change is here
+            fn_kwargs={'block_size': block_size},
             remove_columns=orig_cols,
             batch_size=1000,
             desc=f"Chunking {dataset_path.name}",
-        ).filter(
-            lambda x: len(x["input_ids"]) > 0,  # Filter out any remaining empty examples
+        )
+        # --- DEBUG-2 ---
+        logger.info(f"[DEBUG] Dataset length after .map() for {dataset_path.name}: {len(mapped_dataset):,}")
+
+        filtered_dataset = mapped_dataset.filter(
+            lambda x: len(x["input_ids"]) > 0,
             desc=f"Filtering {dataset_path.name}",
         )
+        # --- DEBUG-3 ---
+        logger.info(f"[DEBUG] Dataset length after .filter() for {dataset_path.name}: {len(filtered_dataset):,}")
 
-        logger.info(f"Finished processing {dataset_path.name}, resulting in {len(dataset):,} samples.")
+        logger.info(f"Finished processing {dataset_path.name}, resulting in {len(filtered_dataset):,} samples.")
 
-        if len(dataset) == 0:
+        if len(filtered_dataset) == 0:
             logger.warning(f"Dataset at {dataset_path} is empty after processing. The dataloader will be empty.")
 
         data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
         sampler: Optional[Sampler] = None
         if is_distributed:
-            sampler = DistributedSampler(dataset, shuffle=True, seed=config.seed)
+            sampler = DistributedSampler(filtered_dataset, shuffle=True, seed=config.seed)
         else:
-            sampler = RandomSampler(dataset)
+            sampler = RandomSampler(filtered_dataset)
 
         dataloader = DataLoader(
-            dataset,
+            filtered_dataset,
             sampler=sampler,
             batch_size=config.per_device_train_batch_size,
             num_workers=config.num_workers,
@@ -101,6 +106,10 @@ def create_dataloaders(
             collate_fn=data_collator,
             persistent_workers=(True if config.num_workers > 0 else False),
         )
+
+        # --- DEBUG-4 ---
+        logger.info(f"[DEBUG] Final DataLoader length for {dataset_path.name}: {len(dataloader):,}")
+
         return dataloader, sampler
 
     if not config.l1_dataset_path:

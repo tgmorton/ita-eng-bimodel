@@ -170,6 +170,11 @@ class Trainer:
             desc="Training"
         )
 
+        # --- DEBUG-5 ---
+        self.logger.info(f"[DEBUG] Trainer received l1_dataloader with length: {len(self.l1_dataloader)}")
+        if self.l2_dataloader:
+            self.logger.info(f"[DEBUG] Trainer received l2_dataloader with length: {len(self.l2_dataloader)}")
+
         for epoch in range(self.current_epoch, self.config.num_train_epochs):
             self.current_epoch = epoch
             self.model.train()
@@ -182,7 +187,15 @@ class Trainer:
 
             # --- L1 Training Loop ---
             self.logger.info(f"--- Epoch {epoch + 1}/{self.config.num_train_epochs} | Training on L1 dataset ---")
+
+            # --- DEBUG-6 ---
+            self.logger.info("[DEBUG] Entering L1 training loop...")
+
             for step, batch in enumerate(self.l1_dataloader):
+                # --- DEBUG-7 ---
+                if step == 0:
+                    self.logger.info("[DEBUG] --> Successfully entered L1 loop and got the first batch!")
+
                 loss = self._train_step(batch)
                 self.total_loss_since_logging += loss
                 self.steps_since_logging += 1
@@ -196,10 +209,21 @@ class Trainer:
                 if self.config.max_steps and self.global_step >= self.config.max_steps:
                     break
 
+            # --- DEBUG-8 ---
+            self.logger.info("[DEBUG] Exited L1 training loop.")
+
             # --- L2 Training Loop ---
             if self.l2_dataloader:
                 self.logger.info(f"--- Epoch {epoch + 1}/{self.config.num_train_epochs} | Training on L2 dataset ---")
+
+                # --- DEBUG-9 ---
+                self.logger.info("[DEBUG] Entering L2 training loop...")
+
                 for step, batch in enumerate(self.l2_dataloader):
+                    # --- DEBUG-10 ---
+                    if step == 0:
+                        self.logger.info("[DEBUG] --> Successfully entered L2 loop and got the first batch!")
+
                     loss = self._train_step(batch)
                     self.total_loss_since_logging += loss
                     self.steps_since_logging += 1
@@ -212,6 +236,9 @@ class Trainer:
 
                     if self.config.max_steps and self.global_step >= self.config.max_steps:
                         break
+
+                # --- DEBUG-11 ---
+                self.logger.info("[DEBUG] Exited L2 training loop.")
 
             if self.config.max_steps and self.global_step >= self.config.max_steps:
                 break
