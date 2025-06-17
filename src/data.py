@@ -1,20 +1,33 @@
 # src/data.py
 
 import logging
+from pathlib import Path
 from typing import Optional, Tuple
+from functools import partial
 
 from datasets import load_from_disk
 from torch.utils.data import DataLoader, DistributedSampler, RandomSampler, Sampler
 from transformers import DataCollatorForLanguageModeling, PreTrainedTokenizer
-from pathlib import Path
 
 from .config import TrainingConfig
 
 
+def _chunk_examples(batch, block_size: int):
+    """
+    Concatenates and chunks texts into blocks of a specified size.
+    This is a top-level function to ensure it can be pickled by multiprocessing workers.
+    """
+    new_rows = []
+    for ids in batch["input_ids"]:
+        pieces = [ids[i: i + block_size] for i in range(0, len(ids), block_size)]
+        new_rows.extend(pieces)
+    return {"input_ids": new_rows}
+
+
 def create_dataloaders(
-    config: TrainingConfig,
-    tokenizer: PreTrainedTokenizer,
-    is_distributed: bool,
+        config: TrainingConfig,
+        tokenizer: PreTrainedTokenizer,
+        is_distributed: bool,
 ) -> Tuple[DataLoader, Optional[DataLoader], Optional[Sampler], Optional[Sampler]]:
     """
     Loads one or two pre-processed datasets from disk and creates DataLoaders.
@@ -23,7 +36,7 @@ def create_dataloaders(
     logger = logging.getLogger(__name__)
 
     def _create_single_dataloader(
-        dataset_path: Optional[Path],
+            dataset_path: Optional[Path],
     ) -> Tuple[Optional[DataLoader], Optional[Sampler]]:
         """Helper function to create a DataLoader for a single dataset."""
         if not dataset_path:
@@ -32,35 +45,30 @@ def create_dataloaders(
         logger.info(f"Loading data from: {dataset_path}")
         try:
             dataset = load_from_disk(str(dataset_path))
-            logger.info(f"Successfully loaded dataset with {len(dataset):,} samples.")
+            logger.info(f"Successfully loaded dataset with {len(dataset):,} initial samples.")
         except FileNotFoundError:
             logger.error(f"Dataset not found at path: {dataset_path}")
             raise
 
         block_size = 1024
 
-        def chunk(batch):
-            new_rows = []
-            for ids in batch["input_ids"]:
-                pieces = [ids[i : i + block_size] for i in range(0, len(ids), block_size)]
-                new_rows.extend(pieces)
-            return {"input_ids": new_rows}
+        # Use functools.partial to pass the block_size argument to our top-level chunking function
+        chunking_function = partial(_chunk_examples, block_size=block_size)
 
         orig_cols = dataset.column_names
 
-        dataset = (
-            dataset.map(
-                chunk,
-                batched=True,
-                remove_columns=orig_cols,
-                batch_size=1000,
-                desc=f"Chunking {dataset_path}",
-            )
-            .filter(
-                lambda x: len(x["input_ids"]) <= block_size,
-                desc=f"Filtering {dataset_path}",
-            )
+        dataset = dataset.map(
+            chunking_function,
+            batched=True,
+            remove_columns=orig_cols,
+            batch_size=1000,
+            desc=f"Chunking {dataset_path.name}",
+        ).filter(
+            lambda x: len(x["input_ids"]) > 0 and len(x["input_ids"]) <= block_size,
+            desc=f"Filtering {dataset_path.name}",
         )
+
+        logger.info(f"Finished processing {dataset_path.name}, resulting in {len(dataset):,} samples.")
 
         data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
