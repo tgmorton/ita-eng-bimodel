@@ -233,7 +233,14 @@ class Trainer:
                     if (step + 1) % self.config.gradient_accumulation_steps == 0:
                         self._perform_optimizer_step()
                         progress_bar.update(1)
-                        if self.global_step % self.config.save_steps == 0:
+
+                        # --- FIX 2: Update the save condition ---
+                        # This now checks for the regular interval OR if the current step is in our specific schedule
+                        should_save = (self.global_step % self.config.save_steps == 0)
+                        if self.checkpoint_schedule_set and self.global_step in self.checkpoint_schedule_set:
+                            should_save = True
+
+                        if should_save:
                             self._save_checkpoint()
 
                     if self.config.max_steps > 0 and self.global_step >= self.config.max_steps:
