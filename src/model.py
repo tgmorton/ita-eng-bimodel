@@ -13,9 +13,7 @@ from transformers import (
     PretrainedConfig,
 )
 
-# Placeholder for the config class we will create in Task 5
 from .config import TrainingConfig
-
 
 # --- Tokenizer Creation (no change) ---
 def create_tokenizer(model_name_or_path: str) -> PreTrainedTokenizer:

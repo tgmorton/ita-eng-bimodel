@@ -43,7 +43,7 @@ def main():
     and saves the result to data/processed.
     """
     print("--- Running Script 01: Preprocessing Raw Data ---")
-    base_dir = os.path.expanduser('~/Italian-Model')
+    base_dir = os.path.expanduser('~/ita-eng-bimodel')
     raw_dir = os.path.join(base_dir, 'data', 'raw')
     processed_dir = os.path.join(base_dir, 'data', 'processed')
     print(f"Reading raw from:    {raw_dir}")

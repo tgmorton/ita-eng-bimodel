@@ -22,16 +22,14 @@ class TrainingConfig(BaseModel):
     Configuration for the training script, validated by Pydantic.
     """
     # === Essential Paths ===
-    train_dataset_path: DirectoryPath
+    l1_dataset_path: DirectoryPath
+    l2_dataset_path: Optional[DirectoryPath] = None
     output_dir: Path
     checkpoint_path: Optional[DirectoryPath] = None
 
     # === Model Configuration ===
-    # RENAME this field
     tokenizer_path: str
-    # ADD this field to specify the base model type
     model_arch_type: str = 'gpt2'
-
     train_from_scratch: bool = True
     model_size_tag: Optional[str] = None
     architectures_path: FilePath = Path("configs/model_architectures.yaml")
