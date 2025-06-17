@@ -3,7 +3,6 @@
 import logging
 from pathlib import Path
 from typing import Optional, Tuple
-from functools import partial
 
 from datasets import load_from_disk
 from torch.utils.data import DataLoader, DistributedSampler, RandomSampler, Sampler
@@ -19,6 +18,8 @@ def _chunk_examples(batch, block_size: int):
     """
     new_rows = []
     for ids in batch["input_ids"]:
+        if not ids:  # Skip empty lists
+            continue
         pieces = [ids[i: i + block_size] for i in range(0, len(ids), block_size)]
         new_rows.extend(pieces)
     return {"input_ids": new_rows}
@@ -52,23 +53,25 @@ def create_dataloaders(
 
         block_size = 1024
 
-        # Use functools.partial to pass the block_size argument to our top-level chunking function
-        chunking_function = partial(_chunk_examples, block_size=block_size)
-
         orig_cols = dataset.column_names
 
+        # Use fn_kwargs to pass arguments to the map function. This is more robust for multiprocessing.
         dataset = dataset.map(
-            chunking_function,
+            _chunk_examples,
             batched=True,
+            fn_kwargs={'block_size': block_size},  # <-- The key change is here
             remove_columns=orig_cols,
             batch_size=1000,
             desc=f"Chunking {dataset_path.name}",
         ).filter(
-            lambda x: len(x["input_ids"]) > 0 and len(x["input_ids"]) <= block_size,
+            lambda x: len(x["input_ids"]) > 0,  # Filter out any remaining empty examples
             desc=f"Filtering {dataset_path.name}",
         )
 
         logger.info(f"Finished processing {dataset_path.name}, resulting in {len(dataset):,} samples.")
+
+        if len(dataset) == 0:
+            logger.warning(f"Dataset at {dataset_path} is empty after processing. The dataloader will be empty.")
 
         data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
