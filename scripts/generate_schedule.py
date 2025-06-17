@@ -1,199 +1,154 @@
-# src/analysis/generate_aligned_schedule.py
+# scripts/generate_schedule.py
 
 import math
 from pathlib import Path
 from typing import Dict, List, Set
 
+import numpy as np
 import typer
 import yaml
 from datasets import load_from_disk
 from pydantic import BaseModel, field_validator
-from transformers import AutoTokenizer
+from rich.console import Console
+from rich.table import Table
 
 
 # --- Configuration Models ---
 
-class ScheduleConfig(BaseModel):
-    target_checkpoints: Dict[str, int]
-
-    @field_validator("target_checkpoints", mode="before")
-    @classmethod
-    def parse_target_string(cls, v: str) -> Dict[str, int]:
-        if not isinstance(v, str):
-            return v
-        try:
-            return {item.split(':')[0]: int(item.split(':')[1]) for item in v.split(',')}
-        except (ValueError, IndexError):
-            raise ValueError("Invalid format for target_checkpoints. Use '10M:20,25M:45,...'")
+class BilingualConfig(BaseModel):
+    name: str
+    l1_lang: str
+    l1_size: str
+    l2_lang: str
+    l2_size: str
+    l1_checkpoints: int
+    l2_checkpoints: int
 
 
-# --- Core Generation Function ---
+# --- Core Generation Functions ---
 
-def generate_checkpoint_list(
-        mandatory_steps: List[int], total_steps: int, target_checkpoints: int
-) -> List[int]:
-    """
-    Generates a list of checkpoints by layering log-steps on top of mandatory
-    steps, and then filling the remaining gaps proportionally.
-    """
-    # Ensure total_steps is included in the key points
-    key_points: Set[int] = set(mandatory_steps) | {total_steps}
+def calculate_steps(dataset_path: Path, chunk_size: int, effective_batch_size: int, num_epochs: int,
+                    console: Console) -> int:
+    """Calculates the total number of training steps for a given dataset with debugging."""
+    console.print(f"\n[bold blue]-- Debugging path: {dataset_path} --[/bold blue]")
 
-    # Add powers of 2 up to the first milestone for dense early checkpoints
-    first_milestone = min((s for s in key_points if s > 1), default=total_steps)
-    log_step = 1
-    while log_step < first_milestone:
-        key_points.add(log_step)
-        log_step *= 2
+    dataset_path = dataset_path.expanduser()
 
-    # If we already have enough points, we're done
-    if len(key_points) >= target_checkpoints:
-        return sorted(list(key_points))
+    if not dataset_path.exists():
+        console.print(f"[bold red]  - FAIL: Path does not exist.[/bold red]")
+        return 0
 
-    # Calculate how many points we need to add
-    num_to_add = target_checkpoints - len(key_points)
-    sorted_keys = sorted(list(key_points))
+    console.print(f"[green]  - SUCCESS: Path exists.[/green]")
 
-    # Identify the intervals between existing key points
-    intervals = [
-        {"start": sorted_keys[i], "end": sorted_keys[i + 1], "length": sorted_keys[i + 1] - sorted_keys[i]}
-        for i in range(len(sorted_keys) - 1) if sorted_keys[i + 1] > sorted_keys[i]
-    ]
-    total_interval_length = sum(iv['length'] for iv in intervals)
+    try:
+        dataset = load_from_disk(str(dataset_path))
+        console.print(f"[green]  - SUCCESS: Loaded dataset with {len(dataset):,} samples.[/green]")
 
-    if total_interval_length == 0:
-        return sorted_keys
+        if 'input_ids' not in dataset.column_names:
+            console.print(f"[bold red]  - FAIL: 'input_ids' column not found in dataset.[/bold red]")
+            return 0
 
-    # Distribute the needed points proportionally across the intervals
-    points_to_distribute = num_to_add
-    checkpoints_in_interval_float = []
-    for iv in intervals:
-        proportion = iv['length'] / total_interval_length if total_interval_length > 0 else 0
-        checkpoints_in_interval_float.append(proportion * points_to_distribute)
+        num_chunks = sum(math.ceil(len(ids) / chunk_size) for ids in dataset['input_ids'])
+        console.print(f"  - Calculated [yellow]{num_chunks:,}[/yellow] total chunks.")
 
-    # Convert float distributions to integer counts and handle remainders
-    num_in_each_interval = [int(n) for n in checkpoints_in_interval_float]
-    remainders = [f - i for f, i in zip(checkpoints_in_interval_float, num_in_each_interval)]
-    num_to_distribute_remainder = num_to_add - sum(num_in_each_interval)
-    remainder_indices = sorted(range(len(remainders)), key=lambda k: remainders[k], reverse=True)
-    for i in range(num_to_distribute_remainder):
-        num_in_each_interval[remainder_indices[i]] += 1
+        steps_per_epoch = math.ceil(num_chunks / effective_batch_size)
+        console.print(f"  - Calculated [yellow]{steps_per_epoch:,}[/yellow] steps per epoch.")
 
-    # Add the new points within each interval
-    for i, iv in enumerate(intervals):
-        num_in_interval = num_in_each_interval[i]
-        if num_in_interval > 0:
-            step_size = (iv['end'] - iv['start']) / (num_in_interval + 1)
-            for j in range(1, num_in_interval + 1):
-                new_point = round(iv['start'] + j * step_size)
-                if iv['start'] < new_point < iv['end']:
-                    key_points.add(new_point)
+        total_steps = steps_per_epoch * num_epochs
+        console.print(f"  - Total steps for {num_epochs} epochs: [bold yellow]{total_steps:,}[/bold yellow]")
 
-    return sorted(list(key_points))
+        return total_steps
+
+    except Exception as e:
+        console.print(f"[bold red]  - FAIL: An error occurred: {e}[/bold red]")
+        return 0
+
+
+def generate_phase_schedule(total_steps: int, target_checkpoints: int) -> Set[int]:
+    """Generates a checkpoint schedule for a single training phase."""
+    if total_steps <= 0 or target_checkpoints <= 0:
+        return set()
+
+    log_steps = set()
+    step = 1
+    while step < total_steps / 2 and step < 1024:
+        log_steps.add(step)
+        step *= 2
+
+    even_steps = set(np.linspace(1, total_steps, num=target_checkpoints, dtype=int))
+
+    return log_steps | even_steps
 
 
 # --- Typer App for CLI ---
 
 app = typer.Typer(add_completion=False, pretty_exceptions_show_locals=False)
+console = Console()
 
 
 @app.command()
 def main(
-        base_data_dir: Path = typer.Option("/Users/thomasmorton/Italian-Model/data/tokenized",
+        base_data_dir: Path = typer.Option("~/ita-eng-bimodel/data/tokenized",
                                            help="Base directory for tokenized datasets."),
-        base_tokenizer_dir: Path = typer.Option("/Users/thomasmorton/Italian-Model/tokenizer",
-                                                help="Base directory for tokenizers."),
         batch_size: int = typer.Option(8, help="Batch size per device."),
         gradient_accumulation_steps: int = typer.Option(16, help="Gradient accumulation steps."),
-        num_epochs: int = typer.Option(10, help="Total training epochs to simulate."),
+        num_epochs: int = typer.Option(3, help="Total training epochs."),
         chunk_size: int = typer.Option(1024, help="The chunk size used for tokenizing."),
-        target_checkpoints: str = typer.Option(
-            "10M:20,25M:50,50M:100,100M:200",
-            help="Comma-separated list of target checkpoint counts PER EPOCH. Format: 'SIZE:COUNT,...'"
-        ),
 ):
     """
-    Generates aligned, cascading checkpoint schedules for each dataset size,
-    accurately simulating the dataloader's chunking logic.
+    Generates tailored checkpoint schedules for bilingual training configurations.
     """
-    config = ScheduleConfig(target_checkpoints=target_checkpoints)
-
-    if batch_size <= 0 or gradient_accumulation_steps <= 0 or num_epochs <= 0 or chunk_size <= 0:
-        print("Error: Batch size, accumulation steps, epochs, and chunk size must be positive integers.")
-        raise typer.Exit(code=1)
-
-    all_sizes = ['10M', '25M', '50M', '100M']
-    steps_per_epoch_map: Dict[str, int] = {}
     effective_batch_size = batch_size * gradient_accumulation_steps
 
-    print("--- Step 1: Calculating Steps per Epoch (with 100% accurate chunking) ---")
+    bilingual_configs: List[BilingualConfig] = [
+        BilingualConfig(name="10_25_it_eng", l1_lang="italian", l1_size="10M", l2_lang="english", l2_size="25M",
+                        l1_checkpoints=10, l2_checkpoints=20),
+        BilingualConfig(name="25_25_it_eng", l1_lang="italian", l1_size="25M", l2_lang="english", l2_size="25M",
+                        l1_checkpoints=20, l2_checkpoints=20),
+        BilingualConfig(name="50_25_it_eng", l1_lang="italian", l1_size="50M", l2_lang="english", l2_size="25M",
+                        l1_checkpoints=30, l2_checkpoints=20),
+        BilingualConfig(name="10_25_eng_it", l1_lang="english", l1_size="10M", l2_lang="italian", l2_size="25M",
+                        l1_checkpoints=10, l2_checkpoints=20),
+        BilingualConfig(name="25_25_eng_it", l1_lang="english", l1_size="25M", l2_lang="italian", l2_size="25M",
+                        l1_checkpoints=20, l2_checkpoints=20),
+        BilingualConfig(name="50_25_eng_it", l1_lang="english", l1_size="50M", l2_lang="italian", l2_size="25M",
+                        l1_checkpoints=30, l2_checkpoints=20),
+    ]
 
-    for size in all_sizes:
-        dataset_path = base_data_dir / size / "train"
-        if not dataset_path.exists():
-            print(f"- Skipping {size} (data not found).")
-            continue
+    console.print("[bold cyan]--- Generating Bilingual Checkpoint Schedules ---[/bold cyan]")
 
-        dataset = load_from_disk(str(dataset_path))
-        num_chunks = sum(math.ceil(len(ids) / chunk_size) for ids in dataset['input_ids'])
-        steps_per_epoch = math.ceil(num_chunks / effective_batch_size)
-        steps_per_epoch_map[size] = steps_per_epoch
-        print(f"  - Steps/Epoch for {size}: {steps_per_epoch_map[size]:,} steps (from {num_chunks:,} chunks)")
+    for config in bilingual_configs:
+        console.print(f"\n[bold green]===== Processing Configuration: {config.name} =====[/bold green]")
 
-    print("\n--- Step 2: Generating Cascading Layered Schedules (Epoch-by-Epoch) ---")
+        l1_path = base_data_dir / config.name / "l1_train"
+        l2_path = base_data_dir / config.name / "l2_train"
 
-    # MODIFICATION: This now correctly tracks only the first-epoch pattern for cascading.
-    previous_first_epoch_schedule: List[int] = []
+        l1_total_steps = calculate_steps(l1_path, chunk_size, effective_batch_size, num_epochs, console)
+        l2_total_steps = calculate_steps(l2_path, chunk_size, effective_batch_size, num_epochs, console)
 
-    for current_run_size in all_sizes:
-        if current_run_size not in steps_per_epoch_map:
-            continue
+        table = Table(title=f"Results for {config.name}")
+        table.add_column("Phase", style="dim")
+        table.add_column("Details", style="magenta")
+        table.add_column("Total Steps", justify="right", style="yellow")
+        table.add_row("L1", f"{config.l1_lang.capitalize()} {config.l1_size}", f"{l1_total_steps:,}")
+        table.add_row("L2", f"{config.l2_lang.capitalize()} {config.l2_size}", f"{l2_total_steps:,}")
+        console.print(table)
 
-        steps_per_epoch = steps_per_epoch_map[current_run_size]
-        total_steps_for_this_run = steps_per_epoch * num_epochs
-        target_count_per_epoch = config.target_checkpoints.get(current_run_size, 20)
+        l1_schedule = generate_phase_schedule(l1_total_steps, config.l1_checkpoints)
+        l2_schedule_raw = generate_phase_schedule(l2_total_steps, config.l2_checkpoints)
 
-        # 1. Generate the schedule for the FIRST epoch, seeded by the previous run's *first epoch* pattern.
-        # This ensures alignment without inheriting the full multi-epoch schedule.
-        mandatory_for_first_epoch = {s for s in previous_first_epoch_schedule if s <= steps_per_epoch}
+        l2_schedule_offset = {s + l1_total_steps for s in l2_schedule_raw}
 
-        first_epoch_schedule = generate_checkpoint_list(
-            sorted(list(mandatory_for_first_epoch)),
-            steps_per_epoch,
-            target_count_per_epoch
-        )
+        # --- CORRECTED TYPE CASTING ---
+        # Convert all numbers to standard Python integers before dumping to YAML
+        full_schedule = sorted([int(s) for s in (l1_schedule | {l1_total_steps} | l2_schedule_offset)])
 
-        # 2. Extend this single-epoch schedule across all subsequent epochs.
-        full_schedule_set = set()
-        for epoch in range(num_epochs):
-            offset = epoch * steps_per_epoch
-            for step in first_epoch_schedule:
-                # Avoid adding step 0 to subsequent epochs
-                if step == 0 and epoch > 0:
-                    continue
-                full_schedule_set.add(step + offset)
-
-        # 3. Ensure the final step of the training run is always included.
-        full_schedule_set.add(total_steps_for_this_run)
-
-        final_schedule_for_current_run = sorted(list(full_schedule_set))
-
-        print(f"\n--- Recommended Schedule for {current_run_size} Training Run ({num_epochs} epochs) ---")
-        print(
-            f"  Targeting ~{target_count_per_epoch} checkpoints per epoch. Generated {len(final_schedule_for_current_run)} total.")
-        print(
-            f"  This schedule's pattern PRESERVES the {len(previous_first_epoch_schedule)} points from the previous run's pattern.")
-        print("\n  >>> Generated Checkpoint List (for Python):")
-        print(f"  {final_schedule_for_current_run}")
-        print("\n  >>> YAML format (for config file):")
-        yaml_dict = {"checkpoint_schedule": final_schedule_for_current_run}
+        console.print(f"\n[bold]Generated Schedule for [cyan]{config.name}[/cyan]:[/bold]")
+        yaml_dict = {"checkpoint_schedule": full_schedule}
         yaml_output = yaml.dump(yaml_dict, indent=2, default_flow_style=False)
         indented_yaml_output = "\n".join([f"    {line}" for line in yaml_output.splitlines()])
-        print(indented_yaml_output)
-
-        # MODIFICATION: For the next iteration, the "previous" schedule is now correctly set
-        # to be the first-epoch pattern of the CURRENT run.
-        previous_first_epoch_schedule = first_epoch_schedule
+        console.print(indented_yaml_output)
+        console.print("\n" + "=" * 80 + "\n")
 
 
 if __name__ == "__main__":

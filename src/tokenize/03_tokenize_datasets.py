@@ -1,8 +1,9 @@
 # 03_tokenize_datasets.py
 import os
+from glob import glob
+
 import sentencepiece as spm
 from datasets import load_dataset
-from glob import glob
 
 
 def tokenize_and_save(tokenizer, files_to_tokenize, output_dir, split_name):
@@ -16,7 +17,10 @@ def tokenize_and_save(tokenizer, files_to_tokenize, output_dir, split_name):
     dataset = load_dataset('text', data_files=files_to_tokenize, split='train')
 
     def tokenize_function(examples):
-        return {'input_ids': tokenizer.encode(examples['text'], out_type=int)}
+        encoded = [
+            tokenizer.encode(text, out_type=int) for text in examples['text']
+        ]
+        return {'input_ids': encoded}
 
     tokenized_dataset = dataset.map(
         tokenize_function, batched=True, num_proc=os.cpu_count(), remove_columns=['text']
@@ -27,8 +31,8 @@ def tokenize_and_save(tokenizer, files_to_tokenize, output_dir, split_name):
 
 
 def main():
-    print("\n--- Running Script 03: Tokenizing Datasets to Arrow Format ---")
-    base_dir = os.path.expanduser('~/Italian-Model')
+    print("\n--- Running Script 03: Tokenizing Datasets for Bilingual Models ---")
+    base_dir = os.path.expanduser('~/ita-eng-bimodel')
     processed_dir = os.path.join(base_dir, 'data', 'processed')
     tokenizer_dir = os.path.join(base_dir, 'tokenizer')
     tokenized_dir = os.path.join(base_dir, 'data', 'tokenized')
@@ -36,12 +40,20 @@ def main():
     print(f"Reading tokenizers from: {tokenizer_dir}")
     print(f"Writing tokenized to:    {tokenized_dir}\n")
 
-    sizes = ['10M', '25M', '50M', '100M']
+    bilingual_configs = [
+        {'name': '10_25_it_eng', 'l1_lang': 'italian', 'l1_size': '10M', 'l2_lang': 'english', 'l2_size': '25M'},
+        {'name': '25_25_it_eng', 'l1_lang': 'italian', 'l1_size': '25M', 'l2_lang': 'english', 'l2_size': '25M'},
+        {'name': '50_25_it_eng', 'l1_lang': 'italian', 'l1_size': '50M', 'l2_lang': 'english', 'l2_size': '25M'},
+        {'name': '10_25_eng_it', 'l1_lang': 'english', 'l1_size': '10M', 'l2_lang': 'italian', 'l2_size': '25M'},
+        {'name': '25_25_eng_it', 'l1_lang': 'english', 'l1_size': '25M', 'l2_lang': 'italian', 'l2_size': '25M'},
+        {'name': '50_25_eng_it', 'l1_lang': 'english', 'l1_size': '50M', 'l2_lang': 'italian', 'l2_size': '25M'},
+    ]
 
-    for size in sizes:
-        print(f"----- Processing dataset for size: {size} -----")
+    for config in bilingual_configs:
+        name = config['name']
+        print(f"----- Processing dataset for config: {name} -----")
 
-        tokenizer_model_path = os.path.join(tokenizer_dir, size, f'tokenizer_{size}.model')
+        tokenizer_model_path = os.path.join(tokenizer_dir, name, f'tokenizer_{name}.model')
         if not os.path.exists(tokenizer_model_path):
             print(f"  - FATAL ERROR: Tokenizer not found at '{tokenizer_model_path}'. Skipping.")
             continue
@@ -50,16 +62,23 @@ def main():
         tokenizer.load(tokenizer_model_path)
         print(f"  - Loaded tokenizer: {os.path.basename(tokenizer_model_path)}")
 
-        # --- 1. Process the TRAINING split for this size ---
-        train_files = glob(os.path.join(processed_dir, size, '*.train'))
-        output_train_dir = os.path.join(tokenized_dir, size, 'train')
-        tokenize_and_save(tokenizer, train_files, output_train_dir, 'train')
+        # --- Tokenize L1 and L2 training datasets ---
+        l1_files = glob(os.path.join(processed_dir, config['l1_lang'], config['l1_size'], '*.train'))
+        output_l1_dir = os.path.join(tokenized_dir, name, 'l1_train')
+        tokenize_and_save(tokenizer, l1_files, output_l1_dir, f"{config['l1_lang']}-{config['l1_size']}")
 
-        # --- 2. Process the common TEST split using this size's tokenizer ---
-        # CORRECTED: Now looks for .test files
-        test_files = glob(os.path.join(processed_dir, 'test_data', '*.test'))
-        output_test_dir = os.path.join(tokenized_dir, size, 'test')
-        tokenize_and_save(tokenizer, test_files, output_test_dir, 'test')
+        l2_files = glob(os.path.join(processed_dir, config['l2_lang'], config['l2_size'], '*.train'))
+        output_l2_dir = os.path.join(tokenized_dir, name, 'l2_train')
+        tokenize_and_save(tokenizer, l2_files, output_l2_dir, f"{config['l2_lang']}-{config['l2_size']}")
+
+        # --- Tokenize Italian and English test datasets ---
+        it_test_files = glob(os.path.join(processed_dir, 'italian', 'test_data_reduced', '*.test'))
+        output_it_test_dir = os.path.join(tokenized_dir, name, 'italian_test')
+        tokenize_and_save(tokenizer, it_test_files, output_it_test_dir, 'italian_test')
+
+        en_test_files = glob(os.path.join(processed_dir, 'english', 'test_data', '*.test'))
+        output_en_test_dir = os.path.join(tokenized_dir, name, 'english_test')
+        tokenize_and_save(tokenizer, en_test_files, output_en_test_dir, 'english_test')
 
     print("\n----- All datasets have been tokenized and saved. -----")
 
