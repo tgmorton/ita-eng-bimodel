@@ -1,7 +1,7 @@
-l1_dataset_path: /Users/thomasmorton/ita-eng-bimodel/data/tokenized/10_25_it_eng/l1_train
-l2_dataset_path: /Users/thomasmorton/ita-eng-bimodel/data/tokenized/10_25_it_eng/l2_train
+l1_dataset_path: data/tokenized/10_25_it_eng/l1_train
+l2_dataset_path: data/tokenized/10_25_it_eng/l2_train
 output_dir: output/10_25_it_eng
-tokenizer_path: /Users/thomasmorton/ita-eng-bimodel/tokenizer/10_25_it_eng
+tokenizer_path: tokenizer/10_25_it_eng
 architectures_path: configs/model_architectures.yaml
 train_from_scratch: true
 model_arch_type: gpt2

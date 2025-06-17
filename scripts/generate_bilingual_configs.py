@@ -7,10 +7,12 @@ import numpy as np
 from datasets import load_from_disk
 from rich.console import Console
 
-# --- Re-used Core Logic from generate_schedule.py ---
+# --- Re-used Core Logic ---
 
 def calculate_steps(dataset_path: Path, chunk_size: int, effective_batch_size: int, num_epochs: int) -> int:
     """Calculates the total number of training steps for a given dataset."""
+    # Correctly expand user for local execution of this script
+    dataset_path = dataset_path.expanduser()
     if not dataset_path.exists():
         print(f"Warning: Dataset path not found, cannot calculate steps: {dataset_path}")
         return 0
@@ -41,10 +43,10 @@ def generate_configs():
     console.print("[bold cyan]--- Generating Bilingual Experiment Configurations ---[/bold cyan]")
 
     # --- Static Parameters ---
-    base_dir = Path("~/ita-eng-bimodel").expanduser()
-    tokenized_data_dir = base_dir / "data/tokenized"
-    tokenizer_base_dir = base_dir / "tokenizer"
-    configs_output_dir = base_dir / "configs"
+    # Define paths RELATIVE to the project root for use inside the container
+    tokenized_data_dir = Path("data/tokenized")
+    tokenizer_base_dir = Path("tokenizer")
+    configs_output_dir = Path("configs")
     configs_output_dir.mkdir(exist_ok=True)
 
     # These parameters are shared across all experiment configs
@@ -55,35 +57,36 @@ def generate_configs():
     effective_batch_size = batch_size * gradient_accumulation_steps
 
     bilingual_setups = [
-        {'name': '10_25_it_eng', 'l1_lang': 'italian', 'l1_size': '10M', 'l2_lang': 'english', 'l2_size': '25M', 'l1_checkpoints': 20, 'l2_checkpoints': 50},
-        {'name': '25_25_it_eng', 'l1_lang': 'italian', 'l1_size': '25M', 'l2_lang': 'english', 'l2_size': '25M', 'l1_checkpoints': 50, 'l2_checkpoints': 50},
-        {'name': '50_25_it_eng', 'l1_lang': 'italian', 'l1_size': '50M', 'l2_lang': 'english', 'l2_size': '25M', 'l1_checkpoints': 100, 'l2_checkpoints': 50},
-        {'name': '10_25_eng_it', 'l1_lang': 'english', 'l1_size': '10M', 'l2_lang': 'italian', 'l2_size': '25M', 'l1_checkpoints': 20, 'l2_checkpoints': 50},
-        {'name': '25_25_eng_it', 'l1_lang': 'english', 'l1_size': '25M', 'l2_lang': 'italian', 'l2_size': '25M', 'l1_checkpoints': 50, 'l2_checkpoints': 50},
-        {'name': '50_25_eng_it', 'l1_lang': 'english', 'l1_size': '50M', 'l2_lang': 'italian', 'l2_size': '25M', 'l1_checkpoints': 100, 'l2_checkpoints': 50},
+        {'name': '10_25_it_eng', 'l1_checkpoints': 20, 'l2_checkpoints': 50},
+        {'name': '25_25_it_eng', 'l1_checkpoints': 50, 'l2_checkpoints': 50},
+        {'name': '50_25_it_eng', 'l1_checkpoints': 100, 'l2_checkpoints': 50},
+        {'name': '10_25_eng_it', 'l1_checkpoints': 20, 'l2_checkpoints': 50},
+        {'name': '25_25_eng_it', 'l1_checkpoints': 50, 'l2_checkpoints': 50},
+        {'name': '50_25_eng_it', 'l1_checkpoints': 100, 'l2_checkpoints': 50},
     ]
 
     for setup in bilingual_setups:
         name = setup['name']
         console.print(f"\n[bold green]===== Generating config for: {name} =====[/bold green]")
 
-        # --- Calculate Schedule ---
-        l1_path = tokenized_data_dir / name / "l1_train"
-        l2_path = tokenized_data_dir / name / "l2_train"
+        # --- Calculate Schedule (using absolute paths for local calculation) ---
+        # Note: The calculation needs the absolute path to load the dataset locally
+        l1_path_local = Path("~/ita-eng-bimodel").expanduser() / tokenized_data_dir / name / "l1_train"
+        l2_path_local = Path("~/ita-eng-bimodel").expanduser() / tokenized_data_dir / name / "l2_train"
 
-        l1_total_steps = calculate_steps(l1_path, chunk_size, effective_batch_size, num_epochs)
-        l2_total_steps = calculate_steps(l2_path, chunk_size, effective_batch_size, num_epochs)
+        l1_total_steps = calculate_steps(l1_path_local, chunk_size, effective_batch_size, num_epochs)
+        l2_total_steps = calculate_steps(l2_path_local, chunk_size, effective_batch_size, num_epochs)
 
         l1_schedule = generate_phase_schedule(l1_total_steps, setup['l1_checkpoints'])
         l2_schedule_raw = generate_phase_schedule(l2_total_steps, setup['l2_checkpoints'])
         l2_schedule_offset = {s + l1_total_steps for s in l2_schedule_raw}
         full_schedule = sorted([int(s) for s in (l1_schedule | {l1_total_steps} | l2_schedule_offset)])
 
-        # --- Build YAML Config Dictionary ---
+        # --- Build YAML Config Dictionary (using RELATIVE paths) ---
         config_dict = {
-            # Essential Paths
-            "l1_dataset_path": str(l1_path),
-            "l2_dataset_path": str(l2_path),
+            # Essential Paths (now relative)
+            "l1_dataset_path": str(tokenized_data_dir / name / "l1_train"),
+            "l2_dataset_path": str(tokenized_data_dir / name / "l2_train"),
             "output_dir": f"output/{name}",
             "tokenizer_path": str(tokenizer_base_dir / name),
             "architectures_path": "configs/model_architectures.yaml",
@@ -91,7 +94,6 @@ def generate_configs():
             # Model Configuration
             "train_from_scratch": True,
             "model_arch_type": "gpt2",
-            # IMPORTANT: You must change this to a valid key from your model_architectures.yaml
             "model_size_tag": "gpt2-100m",
 
             # Training Hyperparameters
@@ -113,13 +115,13 @@ def generate_configs():
 
             # Logging & Saving
             "logging_steps": 100,
-            # save_steps is a fallback; the schedule is primary
             "save_steps": 500,
             "checkpoint_schedule": full_schedule,
         }
 
         # --- Write to File ---
-        output_filepath = configs_output_dir / f"{name}.yaml"
+        # Use the local path for writing the config file
+        output_filepath = Path.home() / "ita-eng-bimodel" / "configs" / f"{name}.yaml"
         with open(output_filepath, 'w') as f:
             yaml.dump(config_dict, f, sort_keys=False, indent=2)
 
