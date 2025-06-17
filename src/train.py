@@ -111,7 +111,7 @@ def main(
     else:
         len_l1 = len(l1_dataloader)
         len_l2 = len(l2_dataloader) if l2_dataloader else 0
-        num_optimizer_steps_per_epoch = math.ceil((len_l1 + len_l2) / config.gradient_accumulation_steps)
+        num_optimizer_steps_per_epoch = (len_l1 + len_l2) // config.gradient_accumulation_steps
         num_training_steps = config.num_train_epochs * num_optimizer_steps_per_epoch
 
     optimizer, lr_scheduler = create_optimizer_and_scheduler(

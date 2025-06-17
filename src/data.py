@@ -13,16 +13,27 @@ from .config import TrainingConfig
 
 def _chunk_examples(batch, block_size: int):
     """
-    Concatenates and chunks texts into blocks of a specified size.
-    This is a top-level function to ensure it can be pickled by multiprocessing workers.
+    Concatenates all examples in a batch and then chunks them into blocks
+    of a specified size. This is a more robust method for use with map.
     """
-    new_rows = []
-    for ids in batch["input_ids"]:
-        if not ids:  # Skip empty lists
-            continue
-        pieces = [ids[i: i + block_size] for i in range(0, len(ids), block_size)]
-        new_rows.extend(pieces)
-    return {"input_ids": new_rows}
+    # 1. Concatenate all texts from the batch
+    concatenated_examples = {k: sum(batch[k], []) for k in batch.keys()}
+    total_length = len(concatenated_examples[list(batch.keys())[0]])
+
+    # 2. Drop the remainder that is smaller than the block_size
+    if total_length < block_size:
+        # Return an empty dict if the concatenated batch is too small
+        # This will be filtered out by the subsequent .filter() call
+        return {k: [] for k in batch.keys()}
+
+    total_length = (total_length // block_size) * block_size
+
+    # 3. Split into chunks of block_size
+    result = {
+        k: [t[i: i + block_size] for i in range(0, total_length, block_size)]
+        for k, t in concatenated_examples.items()
+    }
+    return result
 
 
 def create_dataloaders(
