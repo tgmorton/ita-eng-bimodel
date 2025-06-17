@@ -166,9 +166,9 @@ class Trainer:
         )
 
         # --- DEBUG-5 ---
-        self.logger.info(f"[DEBUG] Trainer received l1_dataloader with length: {len(self.l1_dataloader)}")
-        if self.l2_dataloader:
-            self.logger.info(f"[DEBUG] Trainer received l2_dataloader with length: {len(self.l2_dataloader)}")
+        #self.logger.info(f"[DEBUG] Trainer received l1_dataloader with length: {len(self.l1_dataloader)}")
+        #if self.l2_dataloader:
+            #self.logger.info(f"[DEBUG] Trainer received l2_dataloader with length: {len(self.l2_dataloader)}")
 
         for epoch in range(self.current_epoch, self.config.num_train_epochs):
             self.current_epoch = epoch
