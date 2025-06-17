@@ -23,11 +23,6 @@ from .config import TrainingConfig
 
 
 class Trainer:
-    """
-    Encapsulates the entire training process for a Hugging Face model,
-    with support for sequential bilingual training.
-    """
-
     def __init__(
             self,
             config: TrainingConfig,
@@ -44,13 +39,7 @@ class Trainer:
     ):
         self.config = config
         self.model = model
-        self.optimizer = optimizer
-        self.lr_scheduler = lr_scheduler
-        self.l1_dataloader = l1_dataloader
-        self.l2_dataloader = l2_dataloader
-        self.l1_sampler = l1_sampler
-        self.l2_sampler = l2_sampler
-        self.device = device
+        # ... (rest of the assignments)
         self.tokenizer = tokenizer
         self.num_training_steps = num_training_steps
 
@@ -67,7 +56,13 @@ class Trainer:
         self.total_loss_since_logging = 0.0
         self.steps_since_logging = 0
 
+        # --- FIX 1: Initialize the checkpoint schedule set ---
         self.checkpoint_schedule_set: Optional[Set[int]] = None
+        if self.config.checkpoint_schedule:
+            self.checkpoint_schedule_set = set(self.config.checkpoint_schedule)
+            if self.is_main_process:
+                self.logger.info(f"Checkpointing will occur at specified steps from the schedule ({len(self.checkpoint_schedule_set)} total).")
+
 
         if self.config.checkpoint_path:
             self._load_checkpoint()
@@ -203,7 +198,14 @@ class Trainer:
                 if (step + 1) % self.config.gradient_accumulation_steps == 0:
                     self._perform_optimizer_step()
                     progress_bar.update(1)
-                    if self.global_step % self.config.save_steps == 0:
+
+                    # --- FIX 2: Update the save condition ---
+                    # This now checks for the regular interval OR if the current step is in our specific schedule
+                    should_save = (self.global_step % self.config.save_steps == 0)
+                    if self.checkpoint_schedule_set and self.global_step in self.checkpoint_schedule_set:
+                        should_save = True
+
+                    if should_save:
                         self._save_checkpoint()
 
                 if self.config.max_steps > 0 and self.global_step >= self.config.max_steps:
