@@ -193,7 +193,7 @@ class Trainer:
                     if self.global_step % self.config.save_steps == 0:
                         self._save_checkpoint()
 
-                if self.config.max_train_steps and self.global_step >= self.config.max_train_steps:
+                if self.config.max_steps and self.global_step >= self.config.max_steps:
                     break
 
             # --- L2 Training Loop ---
@@ -210,10 +210,10 @@ class Trainer:
                         if self.global_step % self.config.save_steps == 0:
                             self._save_checkpoint()
 
-                    if self.config.max_train_steps and self.global_step >= self.config.max_train_steps:
+                    if self.config.max_steps and self.global_step >= self.config.max_steps:
                         break
 
-            if self.config.max_train_steps and self.global_step >= self.config.max_train_steps:
+            if self.config.max_steps and self.global_step >= self.config.max_steps:
                 break
 
         progress_bar.close()
