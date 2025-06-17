@@ -6,6 +6,7 @@ from typing import Optional, Tuple
 from datasets import load_from_disk
 from torch.utils.data import DataLoader, DistributedSampler, RandomSampler, Sampler
 from transformers import DataCollatorForLanguageModeling, PreTrainedTokenizer
+from pathlib import Path
 
 from .config import TrainingConfig
 
