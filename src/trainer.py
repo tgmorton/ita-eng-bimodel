@@ -39,7 +39,16 @@ class Trainer:
     ):
         self.config = config
         self.model = model
-        # ... (rest of the assignments)
+        self.optimizer = optimizer
+        self.lr_scheduler = lr_scheduler
+        self.l1_dataloader = l1_dataloader
+        self.l2_dataloader = l2_dataloader
+
+        # --- FIX: Add these two missing lines ---
+        self.l1_sampler = l1_sampler
+        self.l2_sampler = l2_sampler
+
+        self.device = device
         self.tokenizer = tokenizer
         self.num_training_steps = num_training_steps
 
