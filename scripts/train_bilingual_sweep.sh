@@ -77,7 +77,7 @@ srun singularity exec --nv \
     "${HOST_SIF_PATH}" \
     bash -c "cd /workspace && python -m src.train \
         --config-file ${CURRENT_CONFIG} \
-        --output_dir ${OUTPUT_DIR}"
+        --output-dir ${OUTPUT_DIR}"
 
 echo "========================================================"
 echo "Job Finished: $(date)"
