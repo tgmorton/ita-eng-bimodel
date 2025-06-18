@@ -1,18 +1,16 @@
-# evaluation/data_loader.py (DEBUG Version)
+# evaluation/data_loader.py (Final, Language-Specific Version)
 
 import pandas as pd
 from pathlib import Path
 import logging
 
-# Configure logger to be verbose for debugging
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(name)s - %(message)s')
 
 
 class DataLoader:
     """
-    Handles loading and validation of surprisal evaluation data from CSV files.
-    This version includes extensive logging to debug data loading issues.
+    Handles loading and validation of surprisal evaluation data from CSV files
+    for a specific language.
     """
     INTERNAL_COLUMNS = ["item_id", "context", "null_sentence", "overt_sentence", "hotspot"]
 
@@ -20,50 +18,48 @@ class DataLoader:
         if not file_path.exists():
             raise FileNotFoundError(f"Evaluation file not found at: {file_path}")
         self.file_path = file_path
-        self.data = None
 
-    def _get_language_suffix(self, df_cols: list) -> str:
-        """Finds a common language suffix like '_italian' or '_english'."""
-        for col in df_cols:
-            if col.startswith('c_'):
-                return col.split('c_', 1)[1]
-        logger.warning(
-            f"Could not determine a language suffix (e.g., '_italian') from 'c_' column in {self.file_path.name}. Assuming no suffix.")
-        return ""
-
-    def load_data(self) -> pd.DataFrame:
-        """
-        Loads the CSV, validates it with verbose logging, and returns a standardized DataFrame.
-        """
-        logger.info(f"--- Loading Surprisal Data from: {self.file_path.name} ---")
+    def get_available_languages(self) -> list:
+        """Inspects the CSV header to find which languages are available."""
         try:
-            self.data = pd.read_csv(self.file_path).fillna('')
-            self.data.columns = self.data.columns.str.strip()
-            logger.info(f"Found columns: {list(self.data.columns)}")
+            df_cols = pd.read_csv(self.file_path, nrows=0).columns
+            languages = set()
+            for col in df_cols:
+                if col.startswith('c_'):
+                    languages.add(col.split('c_', 1)[1])
+            return sorted(list(languages))
         except Exception as e:
-            logger.error(f"CRITICAL: Failed to read CSV file. Error: {e}")
+            logger.error(f"Could not read headers from {self.file_path.name}: {e}")
+            return []
+
+    def load_data(self, language: str) -> pd.DataFrame:
+        """
+        Loads the CSV for a specific language, validates it, and returns a
+        DataFrame with standardized column names.
+        """
+        logger.info(f"Attempting to load '{language}' columns from: {self.file_path.name}")
+        try:
+            df = pd.read_csv(self.file_path).fillna('')
+            df.columns = df.columns.str.strip()
+        except Exception as e:
+            logger.error(f"Failed to read CSV file. Error: {e}")
             return pd.DataFrame()
 
-        suffix = self._get_language_suffix(list(self.data.columns))
-
-        # Define the columns we expect based on the detected suffix
+        # Define the exact columns required for the specified language
         required_source_cols = {
             "item": "item_id",
-            f"c_{suffix}": "context",
-            f"t_null_{suffix}": "null_sentence",
-            f"t_overt_{suffix}": "overt_sentence",
-            f"hotspot_{suffix}": "hotspot",
+            f"c_{language}": "context",
+            f"t_null_{language}": "null_sentence",
+            f"t_overt_{language}": "overt_sentence",
+            f"hotspot_{language}": "hotspot",
         }
-        logger.info(f"Expecting columns based on suffix '{suffix}': {list(required_source_cols.keys())}")
 
-        # Validate that all required columns exist
-        missing_cols = [col for col in required_source_cols if col not in self.data.columns]
+        missing_cols = [col for col in required_source_cols if col not in df.columns]
         if missing_cols:
-            logger.error(f"CRITICAL: File is missing required columns: {missing_cols}. Cannot process this file.")
+            logger.error(f"File '{self.file_path.name}' is missing required '{language}' columns: {missing_cols}")
             return pd.DataFrame()
 
-        # Rename and select only the necessary columns
-        renamed_data = self.data.rename(columns=required_source_cols)
+        renamed_data = df.rename(columns=required_source_cols)
 
-        logger.info(f"Successfully loaded and mapped {len(renamed_data)} rows from '{self.file_path.name}'.")
+        logger.info(f"Successfully loaded and mapped {len(renamed_data)} rows for '{language}'.")
         return renamed_data[self.INTERNAL_COLUMNS]
