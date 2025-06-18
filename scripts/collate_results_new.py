@@ -94,10 +94,10 @@ def main():
     args = parser.parse_args()
 
     # Find all priming result files recursively
-    json_files = sorted(list(args.results_dir.rglob("*_priming_results.json")))
+    json_files = sorted(list(args.results_dir.rglob("*_priming.json")))
 
     if not json_files:
-        logging.error(f"No '*_priming_results.json' files found in {args.results_dir}. Please check the path.")
+        logging.error(f"No '*_priming=s.json' files found in {args.results_dir}. Please check the path.")
         return
 
     logging.info(f"Found {len(json_files)} priming result files to process...")
