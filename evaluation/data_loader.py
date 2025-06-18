@@ -1,71 +1,69 @@
-# evaluation/data_loader.py (Corrected and Final)
+# evaluation/data_loader.py (DEBUG Version)
 
 import pandas as pd
 from pathlib import Path
 import logging
 
+# Configure logger to be verbose for debugging
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(name)s - %(message)s')
 
 
 class DataLoader:
     """
     Handles loading and validation of surprisal evaluation data from CSV files.
-    This version dynamically finds the required columns to be more robust.
+    This version includes extensive logging to debug data loading issues.
     """
-    # The generic column names we need internally
-    INTERNAL_COLUMNS = [
-        "item_id", "context", "null_sentence", "overt_sentence", "hotspot"
-    ]
+    INTERNAL_COLUMNS = ["item_id", "context", "null_sentence", "overt_sentence", "hotspot"]
 
     def __init__(self, file_path: Path):
-        """
-        Initializes the DataLoader with the path to the evaluation file.
-        """
         if not file_path.exists():
             raise FileNotFoundError(f"Evaluation file not found at: {file_path}")
         self.file_path = file_path
         self.data = None
 
-    def _map_columns(self) -> dict:
-        """Dynamically find column mappings from the CSV header."""
-        df_cols = [c.strip() for c in self.data.columns]
-        mapping = {}
-
-        # Map item and hotspot
-        for col in df_cols:
-            if col.lower() == 'item': mapping[col] = 'item_id'
-            if 'hotspot' in col.lower(): mapping[col] = 'hotspot'
-
-        # Find context, null, and overt columns
+    def _get_language_suffix(self, df_cols: list) -> str:
+        """Finds a common language suffix like '_italian' or '_english'."""
         for col in df_cols:
             if col.startswith('c_'):
-                mapping[col] = 'context'
-            elif col.startswith('t_null'):
-                mapping[col] = 'null_sentence'
-            elif col.startswith('t_overt'):
-                mapping[col] = 'overt_sentence'
-
-        return mapping
+                return col.split('c_', 1)[1]
+        logger.warning(
+            f"Could not determine a language suffix (e.g., '_italian') from 'c_' column in {self.file_path.name}. Assuming no suffix.")
+        return ""
 
     def load_data(self) -> pd.DataFrame:
         """
-        Loads the CSV, validates it, and returns a DataFrame with standardized column names.
+        Loads the CSV, validates it with verbose logging, and returns a standardized DataFrame.
         """
-        self.data = pd.read_csv(self.file_path).fillna('')
-        column_mapping = self._map_columns()
+        logger.info(f"--- Loading Surprisal Data from: {self.file_path.name} ---")
+        try:
+            self.data = pd.read_csv(self.file_path).fillna('')
+            self.data.columns = self.data.columns.str.strip()
+            logger.info(f"Found columns: {list(self.data.columns)}")
+        except Exception as e:
+            logger.error(f"CRITICAL: Failed to read CSV file. Error: {e}")
+            return pd.DataFrame()
 
-        # Check if all internal columns were successfully mapped
-        if len(set(column_mapping.values())) < len(self.INTERNAL_COLUMNS):
-            mapped_cols = set(column_mapping.values())
-            missing = set(self.INTERNAL_COLUMNS) - mapped_cols
-            logger.warning(f"Could not find all required column types in {self.file_path.name}. Missing: {missing}")
-            return pd.DataFrame()  # Return empty DataFrame if critical columns are missing
+        suffix = self._get_language_suffix(list(self.data.columns))
+
+        # Define the columns we expect based on the detected suffix
+        required_source_cols = {
+            "item": "item_id",
+            f"c_{suffix}": "context",
+            f"t_null_{suffix}": "null_sentence",
+            f"t_overt_{suffix}": "overt_sentence",
+            f"hotspot_{suffix}": "hotspot",
+        }
+        logger.info(f"Expecting columns based on suffix '{suffix}': {list(required_source_cols.keys())}")
+
+        # Validate that all required columns exist
+        missing_cols = [col for col in required_source_cols if col not in self.data.columns]
+        if missing_cols:
+            logger.error(f"CRITICAL: File is missing required columns: {missing_cols}. Cannot process this file.")
+            return pd.DataFrame()
 
         # Rename and select only the necessary columns
-        renamed_data = self.data.rename(columns=column_mapping)
+        renamed_data = self.data.rename(columns=required_source_cols)
 
-        # Ensure all internal columns are present after renaming
-        final_cols = [col for col in self.INTERNAL_COLUMNS if col in renamed_data.columns]
-
-        logger.info(f"Successfully loaded and validated '{self.file_path.name}'.")
-        return renamed_data[final_cols]
+        logger.info(f"Successfully loaded and mapped {len(renamed_data)} rows from '{self.file_path.name}'.")
+        return renamed_data[self.INTERNAL_COLUMNS]
