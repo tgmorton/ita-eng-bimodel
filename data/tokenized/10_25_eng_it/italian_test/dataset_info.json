@@ -3,11 +3,11 @@
   "citation": "",
   "config_name": "default",
   "dataset_name": "text",
-  "dataset_size": 64694602,
+  "dataset_size": 63910983,
   "description": "",
   "download_checksums": {
     "/Users/thomasmorton/ita-eng-bimodel/data/processed/italian/test_data_reduced/europarl-v7.it-en.it.test": {
-      "num_bytes": 26795077,
+      "num_bytes": 26795066,
       "checksum": null
     },
     "/Users/thomasmorton/ita-eng-bimodel/data/processed/italian/test_data_reduced/PaCCSS-IT.test": {
@@ -19,15 +19,15 @@
       "checksum": null
     },
     "/Users/thomasmorton/ita-eng-bimodel/data/processed/italian/test_data_reduced/QCRI.test": {
-      "num_bytes": 5106111,
+      "num_bytes": 5106053,
       "checksum": null
     },
     "/Users/thomasmorton/ita-eng-bimodel/data/processed/italian/test_data_reduced/Leipzig_Web_Public.test": {
-      "num_bytes": 10461418,
+      "num_bytes": 10461357,
       "checksum": null
     }
   },
-  "download_size": 63761104,
+  "download_size": 63760974,
   "features": {
     "input_ids": {
       "feature": {
@@ -39,12 +39,12 @@
   },
   "homepage": "",
   "license": "",
-  "size_in_bytes": 128455706,
+  "size_in_bytes": 127671957,
   "splits": {
     "train": {
       "name": "train",
-      "num_bytes": 64694602,
-      "num_examples": 311166,
+      "num_bytes": 63910983,
+      "num_examples": 50003,
       "dataset_name": "text"
     }
   },

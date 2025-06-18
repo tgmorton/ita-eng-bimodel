@@ -3,7 +3,7 @@
   "citation": "",
   "config_name": "default",
   "dataset_name": "text",
-  "dataset_size": 160082131,
+  "dataset_size": 157856380,
   "description": "",
   "download_checksums": {
     "/Users/thomasmorton/ita-eng-bimodel/data/processed/italian/25M/PaCCSS-IT.train": {
@@ -11,23 +11,23 @@
       "checksum": null
     },
     "/Users/thomasmorton/ita-eng-bimodel/data/processed/italian/25M/europarl-v7.it-en.it.train": {
-      "num_bytes": 64041944,
+      "num_bytes": 64041831,
       "checksum": null
     },
     "/Users/thomasmorton/ita-eng-bimodel/data/processed/italian/25M/CHILDES.train": {
-      "num_bytes": 2742211,
+      "num_bytes": 2742205,
       "checksum": null
     },
     "/Users/thomasmorton/ita-eng-bimodel/data/processed/italian/25M/Leipzig_Web_Public.train": {
-      "num_bytes": 25297884,
+      "num_bytes": 25297719,
       "checksum": null
     },
     "/Users/thomasmorton/ita-eng-bimodel/data/processed/italian/25M/CORPUS_ISACCO.train": {
-      "num_bytes": 246706,
+      "num_bytes": 244270,
       "checksum": null
     },
     "/Users/thomasmorton/ita-eng-bimodel/data/processed/italian/25M/CltA.train": {
-      "num_bytes": 1233882,
+      "num_bytes": 1228743,
       "checksum": null
     },
     "/Users/thomasmorton/ita-eng-bimodel/data/processed/italian/25M/SPGC.train": {
@@ -35,11 +35,11 @@
       "checksum": null
     },
     "/Users/thomasmorton/ita-eng-bimodel/data/processed/italian/25M/QCRI.train": {
-      "num_bytes": 12330216,
+      "num_bytes": 12329954,
       "checksum": null
     }
   },
-  "download_size": 157489489,
+  "download_size": 157481368,
   "features": {
     "input_ids": {
       "feature": {
@@ -51,12 +51,12 @@
   },
   "homepage": "",
   "license": "",
-  "size_in_bytes": 317571620,
+  "size_in_bytes": 315337748,
   "splits": {
     "train": {
       "name": "train",
-      "num_bytes": 160082131,
-      "num_examples": 864214,
+      "num_bytes": 157856380,
+      "num_examples": 125004,
       "dataset_name": "text"
     }
   },
