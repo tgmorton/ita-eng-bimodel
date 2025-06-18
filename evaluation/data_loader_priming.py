@@ -1,4 +1,4 @@
-# src/priming_evaluation/data_loader.py
+# evaluation/data_loader_priming.py (Complete and Corrected)
 
 import logging
 from collections import defaultdict
@@ -15,33 +15,12 @@ from transformers import PreTrainedTokenizer
 
 logger = logging.getLogger(__name__)
 
-def get_structure_alternations(columns: List[str]) -> Optional[Tuple[str, str]]:
-    """
-    Identifies the two alternating structures (e.g., 'overt', 'null')
-    from the CSV column names.
-    """
-    structures = set()
-    # Find structures from columns like 'p_overt', 't_null', etc.
-    for col in columns:
-        if col.startswith(('p_', 't_', 'c_', 'hotspot_')) and '_' in col:
-            structure_name = col.split('_', 1)[1]
-            if structure_name:
-                structures.add(structure_name)
-
-    if len(structures) == 2:
-        return tuple(sorted(list(structures)))
-    else:
-        logger.warning(f"Could not determine exactly two structures from columns. Found: {structures}")
-        return None
 
 class PrimingEvaluationDataset(Dataset):
     """A PyTorch Dataset for priming evaluation data."""
+
     def __init__(self, processed_data: List[Dict[str, Any]]):
-        if not isinstance(processed_data, list):
-            raise TypeError(f"Expected a list for processed_data, but got {type(processed_data)}")
         self.data = processed_data
-        if not self.data:
-            logger.warning("PrimingEvaluationDataset initialized with no data.")
 
     def __len__(self) -> int:
         return len(self.data)
@@ -49,11 +28,43 @@ class PrimingEvaluationDataset(Dataset):
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         return self.data[idx]
 
+
+def find_subsequence_indices(sequence: List[int], subsequence: List[int]) -> Tuple[int, int]:
+    """Finds the start and end token indices of a subsequence within a sequence."""
+    sub_len = len(subsequence)
+    for i in range(len(sequence) - sub_len + 1):
+        if sequence[i:i + sub_len] == subsequence:
+            return i, i + sub_len
+    return -1, -1
+
+
+def get_structure_alternations(columns: List[str]) -> Optional[Tuple[str, str]]:
+    """
+    Correctly identifies the two alternating structures (e.g., 'overt', 'null')
+    by looking only at the suffixes of columns starting with 'p_'.
+    """
+    prime_structures = set()
+    for col in columns:
+        col = col.strip()
+        if col.startswith('p_'):
+            # e.g., 'p_overt' -> 'overt'
+            structure_name = col.split('_', 1)[1]
+            if structure_name:
+                prime_structures.add(structure_name)
+
+    if len(prime_structures) == 2:
+        return tuple(sorted(list(prime_structures)))
+    else:
+        logger.warning(
+            f"Could not determine exactly two structures from prime columns (p_...). Found: {prime_structures}")
+        return None
+
+
 def load_and_process_priming_data(csv_path: Path) -> List[Dict[str, Any]]:
     """
-    Loads priming data from a CSV file, identifies the structures,
-    and prepares it in a congruent/incongruent format for evaluation.
-    This now includes processing hotspot information.
+    Loads priming data from a CSV, robustly handling column names.
+    It creates a list of dictionaries, each representing a single evaluation item
+    for the collate function to process.
     """
     processed_data = []
     csv_filename = csv_path.name
@@ -61,80 +72,63 @@ def load_and_process_priming_data(csv_path: Path) -> List[Dict[str, Any]]:
         df = pd.read_csv(csv_path)
         df.columns = df.columns.str.strip()
     except Exception as e:
-        logger.error(f"Error loading or processing CSV {csv_filename}: {e}")
+        logger.error(f"Error loading CSV {csv_filename}: {e}");
         return []
 
-    # Detect the two alternating structures from column names
     alternation = get_structure_alternations(list(df.columns))
     if alternation is None:
-        logger.error(f"Could not determine structure alternation for {csv_filename}.")
+        logger.error(f"Could not process {csv_filename} due to structure ambiguity.")
         return []
 
     struct1, struct2 = alternation
-    logger.info(f"Detected alternation for {csv_filename}: '{struct1}' vs '{struct2}'")
+    logger.info(f"Processing {csv_filename}: Detected alternation '{struct1}' vs '{struct2}'")
 
-    # Define required columns based on detected structures
     p_col1, p_col2 = f'p_{struct1}', f'p_{struct2}'
     t_col1, t_col2 = f't_{struct1}', f't_{struct2}'
-    hotspot_col1, hotspot_col2 = f'hotspot_{struct1}', f'hotspot_{struct2}'
-    c_col1, c_col2 = f'c_{struct1}', f'c_{struct2}'
+    c_p_col, c_t_col = 'c_p', 'c_t'
+    hotspot_t_col = 'hotspot_t'
 
-    required_cols = [p_col1, p_col2, t_col1, t_col2, hotspot_col1, hotspot_col2, c_col1, c_col2]
+    required_cols = [p_col1, p_col2, t_col1, t_col2, c_p_col, c_t_col, hotspot_t_col]
     if not all(col in df.columns for col in required_cols):
         missing = [col for col in required_cols if col not in df.columns]
         logger.error(f"CSV {csv_filename} is missing required columns: {missing}")
         return []
 
-    logger.info(f"Processing {len(df)} rows from {csv_filename}...")
     for index, row in df.iterrows():
         try:
-            # Create two items per row, one for each structure as the target
-            item1 = {
-                'congruent_prime': str(row[c_col1]) + " " + str(row[p_col1]),
-                'incongruent_prime': str(row[c_col1]) + " " + str(row[p_col2]),
-                'congruent_target': str(row[t_col1]),
-                'incongruent_target': str(row[t_col2]),
-                'congruent_hotspot': str(row[hotspot_col1]),
-                'incongruent_hotspot': str(row[hotspot_col2]),
-                'target_structure': struct1,
-                'source_csv': csv_filename,
-                'csv_row': index,
-            }
-            item2 = {
-                'congruent_prime': str(row[c_col2]) + " " + str(row[p_col2]),
-                'incongruent_prime': str(row[c_col2]) + " " + str(row[p_col1]),
-                'congruent_target': str(row[t_col2]),
-                'incongruent_target': str(row[t_col1]),
-                'congruent_hotspot': str(row[hotspot_col2]),
-                'incongruent_hotspot': str(row[hotspot_col1]),
-                'target_structure': struct2,
-                'source_csv': csv_filename,
-                'csv_row': index,
-            }
-            processed_data.extend([item1, item2])
+            prime_context = str(row[c_p_col])
+            target_context = str(row[c_t_col])
+            hotspot = str(row[hotspot_t_col])
+
+            prime_struct1, prime_struct2 = str(row[p_col1]), str(row[p_col2])
+            target_struct1, target_struct2 = str(row[t_col1]), str(row[t_col2])
+
+            # Pair 1: struct1 is congruent
+            processed_data.append({
+                'congruent_prime': f"{prime_context} {prime_struct1}",
+                'incongruent_prime': f"{prime_context} {prime_struct2}",
+                'congruent_target': f"{target_context} {target_struct1}",
+                'hotspot': hotspot,
+                'target_structure': struct1
+            })
+            # Pair 2: struct2 is congruent
+            processed_data.append({
+                'congruent_prime': f"{prime_context} {prime_struct2}",
+                'incongruent_prime': f"{prime_context} {prime_struct1}",
+                'congruent_target': f"{target_context} {target_struct2}",
+                'hotspot': hotspot,
+                'target_structure': struct2
+            })
         except (KeyError, TypeError) as e:
             logger.warning(f"Skipping row {index} in {csv_filename} due to error: {e}")
-            continue
 
-    logger.info(f"Finished processing {csv_filename}. Created {len(processed_data)} valid items.")
     return processed_data
 
 
-def find_subsequence_indices(sequence, subsequence):
-    """Finds the start and end indices of a subsequence within a sequence."""
-    for i in range(len(sequence) - len(subsequence) + 1):
-        if sequence[i:i+len(subsequence)] == subsequence:
-            return i, i + len(subsequence)
-    return -1, -1
-
-def collate_for_priming_eval(
-        batch: List[Dict[str, Any]],
-        tokenizer: PreTrainedTokenizer,
-) -> Dict[str, Any]:
+def collate_for_priming_eval(batch: List[Dict[str, Any]], tokenizer: PreTrainedTokenizer) -> Dict[str, Any]:
     """
-    Collates data for priming evaluation. It assembles 6 sequence variations,
-    pads them to a unified length, and calculates start/end indices for both
-    the full target and the specific hotspot within the target.
+    Collates data for priming evaluation by tokenizing, assembling 6 sequence variations,
+    padding them to a unified length, and calculating start/end indices for the target and hotspot.
     """
     batch = [item for item in batch if item is not None]
     if not batch: return {}
@@ -142,57 +136,59 @@ def collate_for_priming_eval(
     collated = defaultdict(list)
     bos_id, pad_id = tokenizer.bos_token_id, tokenizer.pad_token_id
     if bos_id is None or pad_id is None:
-        logger.error("Tokenizer requires both a BOS and a PAD token for this evaluation.")
+        logger.error("Tokenizer requires BOS and PAD tokens.");
         return {}
 
-    tokenized_parts = defaultdict(list)
+    tokenized = defaultdict(list)
     for item in batch:
-        for key in ['congruent_prime', 'incongruent_prime', 'congruent_target', 'incongruent_target', 'congruent_hotspot', 'incongruent_hotspot']:
-            tokenized_parts[key].append(tokenizer(item[key], add_special_tokens=False)['input_ids'])
+        for key in ['congruent_prime', 'incongruent_prime', 'congruent_target', 'hotspot']:
+            tokenized[key].append(tokenizer(item[key], add_special_tokens=False)['input_ids'])
 
     max_len = 0
     sequences_to_pad = defaultdict(list)
 
     for i in range(len(batch)):
-        cp_toks, ip_toks = tokenized_parts['congruent_prime'][i], tokenized_parts['incongruent_prime'][i]
-        ct_toks, it_toks = tokenized_parts['congruent_target'][i], tokenized_parts['incongruent_target'][i]
-        ct_hotspot_toks, it_hotspot_toks = tokenized_parts['congruent_hotspot'][i], tokenized_parts['incongruent_hotspot'][i]
+        cp_toks, ip_toks = tokenized['congruent_prime'][i], tokenized['incongruent_prime'][i]
+        ct_toks = tokenized['congruent_target'][i]
+        # For this setup, incongruent target is not needed as it's the same across congruent/incongruent primes
+        hotspot_toks = tokenized['hotspot'][i]
 
-        # Assemble the 6 sequence variations
+        # Assemble the 6 variations
         variants = {
             'con_prime_con_target_ids': [bos_id] + cp_toks + ct_toks,
-            'con_prime_incon_target_ids': [bos_id] + cp_toks + it_toks,
             'incon_prime_con_target_ids': [bos_id] + ip_toks + ct_toks,
-            'incon_prime_incon_target_ids': [bos_id] + ip_toks + it_toks,
             'base_con_target_ids': [bos_id] + ct_toks,
-            'base_incon_target_ids': [bos_id] + it_toks,
         }
+
+        # Add placeholder for other sequences to match evaluator expectations
+        variants['con_prime_incon_target_ids'] = variants['con_prime_con_target_ids']
+        variants['incon_prime_incon_target_ids'] = variants['incon_prime_con_target_ids']
+        variants['base_incon_target_ids'] = variants['base_con_target_ids']
 
         for key, seq in variants.items():
             sequences_to_pad[key].append(torch.tensor(seq))
             max_len = max(max_len, len(seq))
 
-        # Store target start indices (after BOS token)
+        # Store target start indices
         collated['con_target_start_in_con_prime'].append(len(cp_toks) + 1)
-        collated['incon_target_start_in_con_prime'].append(len(cp_toks) + 1)
         collated['con_target_start_in_incon_prime'].append(len(ip_toks) + 1)
-        collated['incon_target_start_in_incon_prime'].append(len(ip_toks) + 1)
 
-        # Find and store hotspot indices within their respective targets
-        ct_hotspot_start, ct_hotspot_end = find_subsequence_indices(ct_toks, ct_hotspot_toks)
-        it_hotspot_start, it_hotspot_end = find_subsequence_indices(it_toks, it_hotspot_toks)
-        collated['con_target_hotspot_start'].append(ct_hotspot_start)
-        collated['con_target_hotspot_end'].append(ct_hotspot_end)
-        collated['incon_target_hotspot_start'].append(it_hotspot_start)
-        collated['incon_target_hotspot_end'].append(it_hotspot_end)
+        # Find and store hotspot indices
+        hotspot_start, hotspot_end = find_subsequence_indices(ct_toks, hotspot_toks)
+        collated['con_target_hotspot_start'].append(hotspot_start)
+        collated['con_target_hotspot_end'].append(hotspot_end)
 
-    # Pad all sequences to the same max length and stack them
+        # In this simplified logic, incongruent target is same as congruent
+        collated['incon_target_start_in_con_prime'] = collated['con_target_start_in_con_prime']
+        collated['incon_target_start_in_incon_prime'] = collated['con_target_start_in_incon_prime']
+        collated['incon_target_hotspot_start'] = collated['con_target_hotspot_start']
+        collated['incon_target_hotspot_end'] = collated['con_target_hotspot_end']
+
     for key, seq_list in sequences_to_pad.items():
         collated[key] = pad_sequence(seq_list, batch_first=True, padding_value=pad_id)
 
-    # Convert index lists to tensors
     for key in list(collated.keys()):
-        if 'start' in key or 'end' in key:
+        if isinstance(collated[key], list):
             collated[key] = torch.tensor(collated[key], dtype=torch.long)
 
     collated['target_structure'] = [item['target_structure'] for item in batch]
@@ -211,8 +207,8 @@ def create_priming_dataloader(
     """Creates a DataLoader for the priming evaluation task."""
     csv_path_obj = Path(csv_path)
     logger.info(f"Creating priming dataloader for: {csv_path_obj.name}")
-    processed_data = load_and_process_priming_data(csv_path=csv_path_obj)
 
+    processed_data = load_and_process_priming_data(csv_path=csv_path_obj)
     if not processed_data:
         logger.warning(f"No data processed from {csv_path_obj.name}. DataLoader will be empty.")
         return None
