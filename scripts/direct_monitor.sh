@@ -41,7 +41,7 @@ HOST_RESULTS_DIR="${HOST_PROJECT_DIR}/results"
 HOST_TOKENIZER_DIR="${HOST_PROJECT_DIR}/tokenizer"
 
 # --- UPDATED: Simplified paths for evaluation data ---
-HOST_SURPRISAL_DIR="${HOST_PROJECT_DIR}/evaluation/data/italian_null_subject"
+HOST_SURPRISAL_DIR="${HOST_PROJECT_DIR}/evaluation/data/null_subject"
 HOST_PRIMING_DIR="${HOST_PROJECT_DIR}/evaluation/data/priming" # Consolidated priming data
 
 # Paths inside the container
