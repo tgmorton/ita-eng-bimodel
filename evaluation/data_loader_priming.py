@@ -1,4 +1,4 @@
-# evaluation/data_loader_priming.py (Final and Complete)
+# evaluation/data_loader_priming.py (Final, Space-Robust Version)
 
 import logging
 from collections import defaultdict
@@ -27,13 +27,32 @@ class PrimingEvaluationDataset(Dataset):
         return self.data[idx]
 
 
-def find_subsequence_indices(sequence: List[int], subsequence: List[int]) -> Tuple[int, int]:
+def find_subsequence_indices_robust(sequence: List[int], subsequence: List[int], tokenizer: PreTrainedTokenizer) -> \
+Tuple[int, int]:
+    """
+    Finds the start and end token indices of a subsequence, trying both an exact
+    match and a match that strips a leading space token from the subsequence.
+    """
+    # Attempt 1: Direct exact match
     sub_len = len(subsequence)
-    if sub_len == 0: return -1, -1
-    for i in range(len(sequence) - sub_len + 1):
-        if sequence[i:i + sub_len] == subsequence:
-            return i, i + sub_len
-    logger.warning(f"Hotspot subsequence not found in target sequence.")
+    if sub_len > 0:
+        for i in range(len(sequence) - sub_len + 1):
+            if sequence[i:i + sub_len] == subsequence:
+                return i, i + sub_len
+
+    # Attempt 2: Strip leading space token and retry
+    # The " " (U+2581) character is a common leading space marker.
+    space_token_ids = tokenizer.encode(" a", add_special_tokens=False)[0:1]  # Get the token for the space before 'a'
+
+    if subsequence and space_token_ids and subsequence[0] == space_token_ids[0]:
+        subsequence_stripped = subsequence[1:]
+        sub_len_stripped = len(subsequence_stripped)
+        if sub_len_stripped > 0:
+            for i in range(len(sequence) - sub_len_stripped + 1):
+                if sequence[i:i + sub_len_stripped] == subsequence_stripped:
+                    return i, i + sub_len_stripped
+
+    logger.warning(f"Hotspot subsequence not found. Subsequence: '{tokenizer.decode(subsequence)}'")
     return -1, -1
 
 
@@ -80,21 +99,16 @@ def load_and_process_priming_data(csv_path: Path) -> List[Dict[str, Any]]:
             hotspot, prime1, prime2 = str(row[hotspot_t_col]), str(row[p_col1]), str(row[p_col2])
             target1, target2 = str(row[t_col1]), str(row[t_col2])
 
-            # Create two evaluation items per row from the CSV
-            processed_data.append({
-                **item_base, 'target_structure': struct1, 'hotspot': hotspot,
-                'congruent_prime': f"{prime_context} {prime1}".strip(),
-                'incongruent_prime': f"{prime_context} {prime2}".strip(),
-                'congruent_target': f"{target_context} {target1}".strip(),
-                'incongruent_target': f"{target_context} {target2}".strip(),
-            })
-            processed_data.append({
-                **item_base, 'target_structure': struct2, 'hotspot': hotspot,
-                'congruent_prime': f"{prime_context} {prime2}".strip(),
-                'incongruent_prime': f"{prime_context} {prime1}".strip(),
-                'congruent_target': f"{target_context} {target2}".strip(),
-                'incongruent_target': f"{target_context} {target1}".strip(),
-            })
+            processed_data.append({**item_base, 'target_structure': struct1, 'hotspot': hotspot,
+                                   'congruent_prime': f"{prime_context} {prime1}".strip(),
+                                   'incongruent_prime': f"{prime_context} {prime2}".strip(),
+                                   'congruent_target': f"{target_context} {target1}".strip(),
+                                   'incongruent_target': f"{target_context} {target2}".strip(), })
+            processed_data.append({**item_base, 'target_structure': struct2, 'hotspot': hotspot,
+                                   'congruent_prime': f"{prime_context} {prime2}".strip(),
+                                   'incongruent_prime': f"{prime_context} {prime1}".strip(),
+                                   'congruent_target': f"{target_context} {target2}".strip(),
+                                   'incongruent_target': f"{target_context} {target1}".strip(), })
         except Exception:
             continue
     return processed_data
@@ -106,23 +120,22 @@ def collate_for_priming_eval(batch: List[Dict[str, Any]], tokenizer: PreTrainedT
     bos_id, pad_id = tokenizer.bos_token_id, tokenizer.pad_token_id
     if bos_id is None or pad_id is None: return {}
 
-    tokenized = defaultdict(list)
+    tokenized, unpadded_sequences = defaultdict(list), defaultdict(list)
+    global_max_len = 0
+
     for item in batch:
         for key in ['congruent_prime', 'incongruent_prime', 'congruent_target', 'incongruent_target', 'hotspot']:
             tokenized[key].append(tokenizer(item[key], add_special_tokens=False)['input_ids'])
 
-    unpadded_sequences, global_max_len = defaultdict(list), 0
     for i in range(len(batch)):
         cp_toks, ip_toks = tokenized['congruent_prime'][i], tokenized['incongruent_prime'][i]
         ct_toks, it_toks = tokenized['congruent_target'][i], tokenized['incongruent_target'][i]
 
-        variants = {
-            'con_prime_con_target_ids': [bos_id] + cp_toks + ct_toks,
-            'con_prime_incon_target_ids': [bos_id] + cp_toks + it_toks,
-            'incon_prime_con_target_ids': [bos_id] + ip_toks + ct_toks,
-            'incon_prime_incon_target_ids': [bos_id] + ip_toks + it_toks,
-            'base_con_target_ids': [bos_id] + ct_toks, 'base_incon_target_ids': [bos_id] + it_toks,
-        }
+        variants = {'con_prime_con_target_ids': [bos_id] + cp_toks + ct_toks,
+                    'con_prime_incon_target_ids': [bos_id] + cp_toks + it_toks,
+                    'incon_prime_con_target_ids': [bos_id] + ip_toks + ct_toks,
+                    'incon_prime_incon_target_ids': [bos_id] + ip_toks + it_toks,
+                    'base_con_target_ids': [bos_id] + ct_toks, 'base_incon_target_ids': [bos_id] + it_toks, }
         for key, seq in variants.items():
             unpadded_sequences[key].append(seq)
             global_max_len = max(global_max_len, len(seq))
@@ -132,8 +145,8 @@ def collate_for_priming_eval(batch: List[Dict[str, Any]], tokenizer: PreTrainedT
         collated['con_target_start_in_incon_prime'].append(len(ip_toks) + 1)
         collated['incon_target_start_in_incon_prime'].append(len(ip_toks) + 1)
 
-        ct_hotspot_start, ct_hotspot_end = find_subsequence_indices(ct_toks, tokenized['hotspot'][i])
-        it_hotspot_start, it_hotspot_end = find_subsequence_indices(it_toks, tokenized['hotspot'][i])
+        ct_hotspot_start, ct_hotspot_end = find_subsequence_indices_robust(ct_toks, tokenized['hotspot'][i], tokenizer)
+        it_hotspot_start, it_hotspot_end = find_subsequence_indices_robust(it_toks, tokenized['hotspot'][i], tokenizer)
         collated['con_target_hotspot_start'].append(ct_hotspot_start)
         collated['con_target_hotspot_end'].append(ct_hotspot_end)
         collated['incon_target_hotspot_start'].append(it_hotspot_start)

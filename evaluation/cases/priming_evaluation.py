@@ -1,4 +1,4 @@
-# evaluation/cases/priming_evaluation.py (Final and Complete)
+# evaluation/cases/priming_evaluation.py (Final, Graceful Failure Version)
 
 import logging
 import math
@@ -18,16 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class PrimingEvaluation(EvaluationCase):
-    """
-    A self-contained evaluation case for calculating structural priming metrics.
-    This version provides detailed, item-level output for every trial.
-    """
-
     def _calculate_metrics_for_batch(self, batch: Dict[str, Any]) -> List[Dict[str, float]]:
-        """
-        Calculates all surprisals for a batch and returns a list of per-item results.
-        This method is now complete and robust.
-        """
         if not batch: return []
         device = self.model_wrapper.device
         tokenizer = self.model_wrapper.tokenizer
@@ -63,7 +54,7 @@ class PrimingEvaluation(EvaluationCase):
             'logp_inconT_base': (torch.full((len(batch['metadata']),), 1), batch['incon_target_hotspot_start'],
                                  batch['incon_target_hotspot_end'])}
 
-        batch_results = [defaultdict(float) for _ in range(len(batch['metadata']))]
+        batch_results = [defaultdict(lambda: float('nan')) for _ in range(len(batch['metadata']))]
         for k, key in enumerate(target_starts_map.keys()):
             logit_tensor, label_tensor = logits_list[k], labels_list[k]
             start_indices, hotspot_starts, hotspot_ends = target_starts_map[key]
@@ -74,6 +65,7 @@ class PrimingEvaluation(EvaluationCase):
             for i in range(len(batch['metadata'])):
                 target_start = start_indices[i].item()
                 if target_start <= 0: continue
+
                 target_len = (label_tensor[i, target_start:] != -100).sum().item()
                 if target_len == 0: continue
 
@@ -88,21 +80,21 @@ class PrimingEvaluation(EvaluationCase):
         return batch_results
 
     def _get_item_level_metrics(self, raw_probs: Dict, item_data: Dict, tokenized_data: Dict) -> Dict:
-        """Calculates final metrics for a single item and returns a detailed dictionary."""
         metrics = {"metadata": item_data, "tokenization": tokenized_data, "sentence_metrics": {}, "hotspot_metrics": {}}
         for scope in ['sentence', 'hotspot']:
             logp_ct_cp = -raw_probs.get(f'logp_conT_conP_{scope}', float('nan'))
             logp_ct_ip = -raw_probs.get(f'logp_conT_inconP_{scope}', float('nan'))
             logp_it_cp = -raw_probs.get(f'logp_inconT_conP_{scope}', float('nan'))
 
+            p_ct_cp, p_it_cp = math.exp(logp_ct_cp), math.exp(logp_it_cp)
+            norm_prob = (p_ct_cp / (p_ct_cp + p_it_cp)) if (p_ct_cp + p_it_cp) > 0 else float('nan')
+
             metrics[f"{scope}_metrics"] = {
                 "pe_sinclair": logp_ct_cp - logp_ct_ip,
                 "logp_congruent_target_given_congruent_prime": logp_ct_cp,
                 "logp_incongruent_target_given_congruent_prime": logp_it_cp,
                 "logp_congruent_target_given_incongruent_prime": logp_ct_ip,
-                "norm_prob_congruent_target_given_congruent_prime": math.exp(logp_ct_cp) / (
-                            math.exp(logp_ct_cp) + math.exp(logp_it_cp)) if (
-                            logp_ct_cp != 0 and logp_it_cp != 0) else float('nan')
+                "norm_prob_congruent_target_given_congruent_prime": norm_prob
             }
         return metrics
 
@@ -113,12 +105,17 @@ class PrimingEvaluation(EvaluationCase):
                                                    batch_size=batch_size, num_workers=0)
             if not dataloader: continue
 
+            original_items = dataloader.dataset.data
+            item_iterator = iter(original_items)
+
             for batch in tqdm(dataloader, desc=f"Evaluating {csv_file.name}", leave=False):
+                batch_metadata = batch.get('metadata', [])
+                if not batch_metadata: continue
+
                 item_metrics_list = self._calculate_metrics_for_batch(batch)
-                if not item_metrics_list: continue
 
                 for i, raw_probs in enumerate(item_metrics_list):
-                    metadata = batch['metadata'][i]
+                    metadata = batch_metadata[i]
                     tokenized_data = {k: self.model_wrapper.tokenizer.tokenize(v) for k, v in metadata.items() if
                                       isinstance(v, str)}
                     full_item_metrics = self._get_item_level_metrics(raw_probs, metadata, tokenized_data)
