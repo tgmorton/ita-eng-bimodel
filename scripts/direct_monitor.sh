@@ -26,6 +26,9 @@ echo "=== Script Started: $(date) ==="
 echo "Target Model Dir: ${MODEL_DIR_NAME}"
 echo "Using Tokenizer:  ${TOKENIZER_NAME}"
 
+module load singularity/4.1.1 || echo "Warning: singularity/4.1.1 module not found. Ensure Singularity is in your PATH."
+module load cuda/11.8 || echo "Warning: cuda/11.8 module not found. Ensure CUDA is correctly configured."
+
 # --- Define Host and Container Paths ---
 # !!! UPDATE THIS TO YOUR PROJECT'S ROOT DIRECTORY !!!
 HOST_PROJECT_DIR="/home/AD/thmorton/ita-eng-bimodel"
