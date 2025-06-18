@@ -1,4 +1,4 @@
-# evaluation/data_loader_priming.py (Complete and Corrected)
+# evaluation/data_loader_priming.py (Corrected and Complete)
 
 import logging
 from collections import defaultdict
@@ -32,6 +32,7 @@ class PrimingEvaluationDataset(Dataset):
 def find_subsequence_indices(sequence: List[int], subsequence: List[int]) -> Tuple[int, int]:
     """Finds the start and end token indices of a subsequence within a sequence."""
     sub_len = len(subsequence)
+    if sub_len == 0: return -1, -1
     for i in range(len(sequence) - sub_len + 1):
         if sequence[i:i + sub_len] == subsequence:
             return i, i + sub_len
@@ -47,7 +48,6 @@ def get_structure_alternations(columns: List[str]) -> Optional[Tuple[str, str]]:
     for col in columns:
         col = col.strip()
         if col.startswith('p_'):
-            # e.g., 'p_overt' -> 'overt'
             structure_name = col.split('_', 1)[1]
             if structure_name:
                 prime_structures.add(structure_name)
@@ -69,7 +69,7 @@ def load_and_process_priming_data(csv_path: Path) -> List[Dict[str, Any]]:
     processed_data = []
     csv_filename = csv_path.name
     try:
-        df = pd.read_csv(csv_path)
+        df = pd.read_csv(csv_path).fillna('')
         df.columns = df.columns.str.strip()
     except Exception as e:
         logger.error(f"Error loading CSV {csv_filename}: {e}");
@@ -96,26 +96,27 @@ def load_and_process_priming_data(csv_path: Path) -> List[Dict[str, Any]]:
 
     for index, row in df.iterrows():
         try:
-            prime_context = str(row[c_p_col])
-            target_context = str(row[c_t_col])
+            prime_context, target_context = str(row[c_p_col]), str(row[c_t_col])
             hotspot = str(row[hotspot_t_col])
 
-            prime_struct1, prime_struct2 = str(row[p_col1]), str(row[p_col2])
-            target_struct1, target_struct2 = str(row[t_col1]), str(row[t_col2])
+            prime1, prime2 = str(row[p_col1]), str(row[p_col2])
+            target1, target2 = str(row[t_col1]), str(row[t_col2])
 
             # Pair 1: struct1 is congruent
             processed_data.append({
-                'congruent_prime': f"{prime_context} {prime_struct1}",
-                'incongruent_prime': f"{prime_context} {prime_struct2}",
-                'congruent_target': f"{target_context} {target_struct1}",
+                'congruent_prime': f"{prime_context} {prime1}".strip(),
+                'incongruent_prime': f"{prime_context} {prime2}".strip(),
+                'congruent_target': f"{target_context} {target1}".strip(),
+                'incongruent_target': f"{target_context} {target2}".strip(),
                 'hotspot': hotspot,
                 'target_structure': struct1
             })
             # Pair 2: struct2 is congruent
             processed_data.append({
-                'congruent_prime': f"{prime_context} {prime_struct2}",
-                'incongruent_prime': f"{prime_context} {prime_struct1}",
-                'congruent_target': f"{target_context} {target_struct2}",
+                'congruent_prime': f"{prime_context} {prime2}".strip(),
+                'incongruent_prime': f"{prime_context} {prime1}".strip(),
+                'congruent_target': f"{target_context} {target2}".strip(),
+                'incongruent_target': f"{target_context} {target1}".strip(),
                 'hotspot': hotspot,
                 'target_structure': struct2
             })
@@ -127,10 +128,10 @@ def load_and_process_priming_data(csv_path: Path) -> List[Dict[str, Any]]:
 
 def collate_for_priming_eval(batch: List[Dict[str, Any]], tokenizer: PreTrainedTokenizer) -> Dict[str, Any]:
     """
-    Collates data for priming evaluation by tokenizing, assembling 6 sequence variations,
-    padding them to a unified length, and calculating start/end indices for the target and hotspot.
+    Collates data by tokenizing, assembling 6 sequence variations, finding a GLOBAL max
+    length for the batch, padding all sequences to it, and calculating indices.
     """
-    batch = [item for item in batch if item is not None]
+    batch = [item for item in batch if item]
     if not batch: return {}
 
     collated = defaultdict(list)
@@ -139,54 +140,53 @@ def collate_for_priming_eval(batch: List[Dict[str, Any]], tokenizer: PreTrainedT
         logger.error("Tokenizer requires BOS and PAD tokens.");
         return {}
 
-    tokenized = defaultdict(list)
+    tokenized, unpadded_sequences = defaultdict(list), defaultdict(list)
+    global_max_len = 0
+
+    # Tokenize all parts first
     for item in batch:
-        for key in ['congruent_prime', 'incongruent_prime', 'congruent_target', 'hotspot']:
+        for key in ['congruent_prime', 'incongruent_prime', 'congruent_target', 'incongruent_target', 'hotspot']:
             tokenized[key].append(tokenizer(item[key], add_special_tokens=False)['input_ids'])
 
-    max_len = 0
-    sequences_to_pad = defaultdict(list)
-
+    # Assemble sequences and find the single max length for the entire batch
     for i in range(len(batch)):
         cp_toks, ip_toks = tokenized['congruent_prime'][i], tokenized['incongruent_prime'][i]
-        ct_toks = tokenized['congruent_target'][i]
-        # For this setup, incongruent target is not needed as it's the same across congruent/incongruent primes
-        hotspot_toks = tokenized['hotspot'][i]
+        ct_toks, it_toks = tokenized['congruent_target'][i], tokenized['incongruent_target'][i]
 
-        # Assemble the 6 variations
         variants = {
             'con_prime_con_target_ids': [bos_id] + cp_toks + ct_toks,
+            'con_prime_incon_target_ids': [bos_id] + cp_toks + it_toks,
             'incon_prime_con_target_ids': [bos_id] + ip_toks + ct_toks,
+            'incon_prime_incon_target_ids': [bos_id] + ip_toks + it_toks,
             'base_con_target_ids': [bos_id] + ct_toks,
+            'base_incon_target_ids': [bos_id] + it_toks,
         }
-
-        # Add placeholder for other sequences to match evaluator expectations
-        variants['con_prime_incon_target_ids'] = variants['con_prime_con_target_ids']
-        variants['incon_prime_incon_target_ids'] = variants['incon_prime_con_target_ids']
-        variants['base_incon_target_ids'] = variants['base_con_target_ids']
-
         for key, seq in variants.items():
-            sequences_to_pad[key].append(torch.tensor(seq))
-            max_len = max(max_len, len(seq))
+            unpadded_sequences[key].append(seq)
+            global_max_len = max(global_max_len, len(seq))
 
-        # Store target start indices
+        # Calculate and store indices
         collated['con_target_start_in_con_prime'].append(len(cp_toks) + 1)
+        collated['incon_target_start_in_con_prime'].append(len(cp_toks) + 1)
         collated['con_target_start_in_incon_prime'].append(len(ip_toks) + 1)
+        collated['incon_target_start_in_incon_prime'].append(len(ip_toks) + 1)
 
-        # Find and store hotspot indices
-        hotspot_start, hotspot_end = find_subsequence_indices(ct_toks, hotspot_toks)
-        collated['con_target_hotspot_start'].append(hotspot_start)
-        collated['con_target_hotspot_end'].append(hotspot_end)
+        ct_hotspot_start, ct_hotspot_end = find_subsequence_indices(ct_toks, tokenized['hotspot'][i])
+        it_hotspot_start, it_hotspot_end = find_subsequence_indices(it_toks, tokenized['hotspot'][i])
+        collated['con_target_hotspot_start'].append(ct_hotspot_start)
+        collated['con_target_hotspot_end'].append(ct_hotspot_end)
+        collated['incon_target_hotspot_start'].append(it_hotspot_start)
+        collated['incon_target_hotspot_end'].append(it_hotspot_end)
 
-        # In this simplified logic, incongruent target is same as congruent
-        collated['incon_target_start_in_con_prime'] = collated['con_target_start_in_con_prime']
-        collated['incon_target_start_in_incon_prime'] = collated['con_target_start_in_incon_prime']
-        collated['incon_target_hotspot_start'] = collated['con_target_hotspot_start']
-        collated['incon_target_hotspot_end'] = collated['con_target_hotspot_end']
+    # Pad all sequences to the global max length and create final tensors
+    for key, sequences in unpadded_sequences.items():
+        padded_tensors = []
+        for seq in sequences:
+            padded_seq = seq + ([pad_id] * (global_max_len - len(seq)))
+            padded_tensors.append(torch.tensor(padded_seq, dtype=torch.long))
+        collated[key] = torch.stack(padded_tensors)
 
-    for key, seq_list in sequences_to_pad.items():
-        collated[key] = pad_sequence(seq_list, batch_first=True, padding_value=pad_id)
-
+    # Convert index lists to tensors
     for key in list(collated.keys()):
         if isinstance(collated[key], list):
             collated[key] = torch.tensor(collated[key], dtype=torch.long)
