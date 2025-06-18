@@ -1,9 +1,11 @@
 #!/bin/bash
 #SBATCH --job-name=bilingual-model-sweep      # A descriptive job name
 #SBATCH --partition=general_gpu_p6000       # The partition to run on
-#SBATCH --array=0-4                         # Create a job array for the 6 configurations
+#SBATCH --array=0-5                         # Create a job array for the 6 configurations
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=48G
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=24G
 #SBATCH --gres=gpu:1
@@ -34,6 +36,7 @@ HOST_SIF_PATH="/home/AD/thmorton/ita-eng-bimodel/italian_llm_env.sif"
 # --- Define the array of experiment config files ---
 # This array holds the path to each experiment we want to run.
 CONFIG_FILES=(
+    "configs/10_25_it_eng.yaml"
     "configs/10_25_eng_it.yaml"
     "configs/25_25_it_eng.yaml"
     "configs/25_25_eng_it.yaml"
@@ -81,3 +84,4 @@ srun singularity exec --nv \
 echo "========================================================"
 echo "Job Finished: $(date)"
 echo "========================================================"
+
